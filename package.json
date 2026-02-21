@@ -3,7 +3,10 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && npm run build:ui",
+    "build:ui": "cd src/ui && npm install && npm run build",
+    "dev:ui": "cd src/ui && npm run dev",
+    "dashboard": "tsx src/cli/dashboard.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },
