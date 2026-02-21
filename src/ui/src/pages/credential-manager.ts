@@ -189,6 +189,11 @@ export class CredentialManager extends LitElement {
     this.message = "";
 
     try {
+      if (window.location.hostname !== "localhost") {
+        throw new Error(
+          "Open the dashboard on http://localhost (not 127.0.0.1) for passkey enrollment.",
+        );
+      }
       if (!("credentials" in navigator) || !window.PublicKeyCredential) {
         throw new Error("WebAuthn is not supported in this browser.");
       }
@@ -225,7 +230,7 @@ export class CredentialManager extends LitElement {
       this.message = "Passkey enrolled.";
       await this.loadCredentials();
     } catch (err) {
-      this.error = `Enrollment failed: ${formatError(err)}`;
+      this.error = `Enrollment failed: ${formatEnrollmentError(err)}`;
     } finally {
       this.busy = false;
     }
@@ -272,8 +277,22 @@ function toBase64Url(buffer: ArrayBuffer): string {
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-function formatError(err: unknown): string {
+function formatEnrollmentError(err: unknown): string {
+  if (
+    err instanceof DOMException &&
+    (err.name === "AbortError" || err.name === "NotAllowedError")
+  ) {
+    return "Enrollment was cancelled or timed out.";
+  }
+  if (err instanceof DOMException && err.name === "InvalidStateError") {
+    return "This authenticator is already registered.";
+  }
+  if (err instanceof DOMException && err.name === "SecurityError") {
+    return "Invalid origin. Open dashboard on http://localhost and retry.";
+  }
+  if (err instanceof DOMException && err.name === "NotSupportedError") {
+    return "No supported platform authenticator is available.";
+  }
   if (err instanceof Error) return err.message;
   return String(err);
 }
-

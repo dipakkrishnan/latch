@@ -7,6 +7,10 @@
     "build:ui": "cd src/ui && npm install && npm run build",
     "dev:ui": "cd src/ui && npm run dev",
     "dashboard": "tsx src/cli/dashboard.ts",
+    "dashboard:no-open": "tsx src/cli/dashboard.ts --no-open",
+    "smoke:dashboard": "vitest run test/dashboard/api.test.ts test/cli/dashboard.test.ts",
+    "smoke:e2e": "vitest run test/dashboard/api.test.ts test/hook.test.ts",
+    "smoke": "npm run build && npm run smoke:dashboard",
     "test": "vitest run",
     "test:watch": "vitest"
   },

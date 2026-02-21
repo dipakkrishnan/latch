@@ -367,5 +367,50 @@ describe("dashboard API", () => {
       expect(res.statusCode).toBe(400);
       expect(res.json()).toHaveProperty("error", "No challenge");
     });
+
+    it("POST /api/enroll/verify rejects non-platform authenticators", async () => {
+      const app = await dashboard.createDashboardServer();
+      const optionsRes = await app.inject({
+        method: "GET",
+        url: "/api/enroll/options",
+      });
+      const challengeId = optionsRes.json().challengeId as string;
+
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/enroll/verify",
+        payload: {
+          challengeId,
+          response: { authenticatorAttachment: "cross-platform" },
+        },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toContain("Platform authenticator required");
+    });
+
+    it("POST /api/enroll/verify rejects expired challenge", async () => {
+      let currentTime = 1_000_000;
+      const app = await dashboard.createDashboardServer({
+        now: () => currentTime,
+        enrollChallengeTtlMs: 100,
+      });
+      const optionsRes = await app.inject({
+        method: "GET",
+        url: "/api/enroll/options",
+      });
+      const challengeId = optionsRes.json().challengeId as string;
+      currentTime += 101;
+
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/enroll/verify",
+        payload: {
+          challengeId,
+          response: { authenticatorAttachment: "platform" },
+        },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toHaveProperty("error", "Challenge expired");
+    });
   });
 });

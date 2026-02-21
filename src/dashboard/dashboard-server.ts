@@ -25,15 +25,26 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const RP_ID = "localhost";
 const RP_NAME = "agent-2fa";
+const ENROLL_CHALLENGE_TTL_MS = 5 * 60 * 1000;
+
+interface ChallengeRecord {
+  challenge: string;
+  createdAt: number;
+}
 
 export interface DashboardServerOptions {
   port?: number;
+  now?: () => number;
+  enrollChallengeTtlMs?: number;
 }
 
 export async function createDashboardServer(
   options?: DashboardServerOptions,
 ): Promise<FastifyInstance> {
   const port = options?.port ?? 2222;
+  const now = options?.now ?? Date.now;
+  const enrollChallengeTtlMs =
+    options?.enrollChallengeTtlMs ?? ENROLL_CHALLENGE_TTL_MS;
   const app = Fastify({ logger: false });
 
   // Serve built UI from dist/ui/ (only if directory exists)
@@ -123,7 +134,7 @@ export async function createDashboardServer(
   // --- Enroll routes ---
   await app.register(
     async (fastify) => {
-      const challenges = new Map<string, string>();
+      const challenges = new Map<string, ChallengeRecord>();
 
       fastify.get("/options", async (_req, reply) => {
         const existing = loadCredentials();
@@ -143,7 +154,10 @@ export async function createDashboardServer(
           },
         });
         const challengeId = nanoid();
-        challenges.set(challengeId, opts.challenge);
+        challenges.set(challengeId, {
+          challenge: opts.challenge,
+          createdAt: now(),
+        });
         return reply.send({
           ...opts,
           challengeId,
@@ -164,20 +178,34 @@ export async function createDashboardServer(
           return reply.status(400).send({ error: "Missing challengeId" });
         }
 
-        const challenge = challenges.get(challengeId);
-        if (!challenge) {
+        const challengeRecord = challenges.get(challengeId);
+        if (!challengeRecord) {
           return reply.status(400).send({ error: "No challenge" });
+        }
+        if (now() - challengeRecord.createdAt > enrollChallengeTtlMs) {
+          challenges.delete(challengeId);
+          return reply.status(400).send({ error: "Challenge expired" });
         }
 
         try {
+          const attachment = getAuthenticatorAttachment(responsePayload);
+          if (attachment !== "platform") {
+            challenges.delete(challengeId);
+            return reply.status(400).send({
+              error:
+                "Platform authenticator required. Use Touch ID / Face ID / Windows Hello on this device.",
+            });
+          }
+
           const verification = await verifyRegistrationResponse({
             response: responsePayload as any,
-            expectedChallenge: challenge,
+            expectedChallenge: challengeRecord.challenge,
             expectedOrigin: `http://${RP_ID}:${port}`,
             expectedRPID: RP_ID,
           });
 
           if (!verification.verified || !verification.registrationInfo) {
+            challenges.delete(challengeId);
             return reply.status(400).send({ error: "Verification failed" });
           }
 
@@ -194,6 +222,7 @@ export async function createDashboardServer(
           challenges.delete(challengeId);
           return reply.send({ ok: true });
         } catch (err) {
+          challenges.delete(challengeId);
           return reply.status(400).send({ error: `${err}` });
         }
       });
@@ -237,4 +266,10 @@ function parseNonNegativeInt(
   if (!/^\d+$/.test(input)) return null;
   const value = Number.parseInt(input, 10);
   return Number.isFinite(value) ? value : null;
+}
+
+function getAuthenticatorAttachment(payload: unknown): string | undefined {
+  if (!payload || typeof payload !== "object") return undefined;
+  const attachment = (payload as Record<string, unknown>).authenticatorAttachment;
+  return typeof attachment === "string" ? attachment : undefined;
 }
