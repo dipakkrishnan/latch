@@ -86,7 +86,7 @@ async function main() {
   const address = await app.listen({ port: 0, host: "127.0.0.1" });
   const serverPort = (app.server.address() as { port: number }).port;
 
-  const url = `http://127.0.0.1:${serverPort}/enroll`;
+  const url = `http://${RP_ID}:${serverPort}/enroll`;
   process.stderr.write(`Opening enrollment page: ${url}\n`);
   await open(url);
 }

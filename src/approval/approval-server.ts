@@ -169,7 +169,7 @@ export async function startApprovalFlow(
     const address = await app.listen({ port: 0, host: "127.0.0.1" });
     const serverPort = (app.server.address() as { port: number }).port;
 
-    const url = `http://127.0.0.1:${serverPort}/approval/${approvalId}`;
+    const url = `http://${RP_ID}:${serverPort}/approval/${approvalId}`;
     process.stderr.write(`Opening approval page: ${url}\n`);
     await open(url);
   });

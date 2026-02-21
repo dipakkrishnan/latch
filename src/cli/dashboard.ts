@@ -49,9 +49,9 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   const { port, noOpen } = parseDashboardArgs(argv);
   const app = await createDashboardServer({ port });
   await app.listen({ port, host: "127.0.0.1" });
-  process.stderr.write(`Dashboard running at http://127.0.0.1:${port}\n`);
+  process.stderr.write(`Dashboard running at http://localhost:${port}\n`);
   if (!noOpen) {
-    await open(`http://127.0.0.1:${port}`);
+    await open(`http://localhost:${port}`);
   }
 }
 
