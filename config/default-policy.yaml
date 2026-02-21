@@ -1,0 +1,25 @@
+# agent-2fa policy configuration
+# Copy this file to ~/.agent-2fa/policy.yaml and customize.
+#
+# Actions:
+#   allow    — auto-approve (no prompt)
+#   ask      — Claude Code shows its normal permission prompt in terminal
+#   deny     — block the tool call
+#   browser  — open localhost approval page (Phase 2)
+#   webauthn — require passkey/Touch ID approval (Phase 3)
+#
+# Rules are evaluated top-to-bottom; first match wins.
+# If no rule matches, defaultAction is used.
+
+defaultAction: allow
+
+rules:
+  - match:
+      tool: "Bash"
+    action: ask
+  - match:
+      tool: "Edit|Write|NotebookEdit"
+    action: ask
+  - match:
+      tool: "Read|Glob|Grep"
+    action: allow
