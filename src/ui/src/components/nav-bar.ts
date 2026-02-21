@@ -9,38 +9,54 @@ export class NavBar extends LitElement {
     css`
       :host {
         display: block;
-        width: 200px;
-        min-height: 100vh;
-        background: var(--card-bg);
-        border-right: 1px solid var(--border);
-        padding: 1.5rem 0;
+      }
+      nav {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
       }
       .brand {
-        font-size: 1rem;
+        font-size: 0.95rem;
         font-weight: 700;
-        padding: 0 1.25rem 1.25rem;
-        border-bottom: 1px solid var(--border);
-        margin-bottom: 0.75rem;
         font-family: var(--font-mono);
-        color: var(--blue);
+        color: var(--blue-soft);
+        letter-spacing: 0.02em;
+      }
+      .tabs {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        padding: 0.28rem;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--card-bg) 85%, black);
+        border: 1px solid var(--border);
       }
       a {
-        display: block;
-        padding: 0.6rem 1.25rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 124px;
+        border-radius: 999px;
+        padding: 0.5rem 0.85rem;
         text-decoration: none;
         color: var(--text-muted);
-        font-size: 0.9rem;
-        transition: color 0.15s, background 0.15s;
+        font-size: 0.85rem;
+        font-weight: 600;
+        transition: color 0.15s, background 0.15s, transform 0.15s;
       }
       a:hover {
         color: var(--text);
-        background: rgba(88, 166, 255, 0.08);
+        background: rgba(88, 166, 255, 0.14);
+        transform: translateY(-1px);
       }
       a.active {
-        color: var(--blue);
-        background: rgba(88, 166, 255, 0.12);
-        border-left: 3px solid var(--blue);
-        padding-left: calc(1.25rem - 3px);
+        color: #fff;
+        background: linear-gradient(
+          120deg,
+          color-mix(in srgb, var(--blue) 76%, #78b7ff),
+          var(--blue)
+        );
       }
     `,
   ];
@@ -55,17 +71,21 @@ export class NavBar extends LitElement {
     ];
 
     return html`
-      <div class="brand">agent-2fa</div>
-      ${links.map(
-        (l) => html`
-          <a
-            href="#/${l.route}"
-            class=${this.active === l.route ? "active" : ""}
-          >
-            ${l.label}
-          </a>
-        `,
-      )}
+      <nav>
+        <div class="brand">agent-2fa / dashboard</div>
+        <div class="tabs">
+          ${links.map(
+            (l) => html`
+              <a
+                href="#/${l.route}"
+                class=${this.active === l.route ? "active" : ""}
+              >
+                ${l.label}
+              </a>
+            `,
+          )}
+        </div>
+      </nav>
     `;
   }
 }
