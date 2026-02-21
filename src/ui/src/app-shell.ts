@@ -3,6 +3,8 @@ import { customElement, state } from "lit/decorators.js";
 import { theme } from "./styles/theme.js";
 import "./components/nav-bar.js";
 import "./pages/policy-editor.js";
+import "./pages/credential-manager.js";
+import "./pages/audit-log.js";
 
 @customElement("app-shell")
 export class AppShell extends LitElement {
@@ -90,17 +92,9 @@ export class AppShell extends LitElement {
       case "policy":
         return html`<policy-editor></policy-editor>`;
       case "credentials":
-        return html`
-          <div class="page-title">Credentials</div>
-          <div class="placeholder">
-            Credential manager coming in Phase 5.
-          </div>
-        `;
+        return html`<credential-manager></credential-manager>`;
       case "audit":
-        return html`
-          <div class="page-title">Audit Log</div>
-          <div class="placeholder">Audit log viewer coming in Phase 6.</div>
-        `;
+        return html`<audit-log-page></audit-log-page>`;
       default:
         return html`
           <div class="page-title">Not Found</div>
