@@ -74,10 +74,8 @@ describe("dashboard API", () => {
 
       const res = await app.inject({ method: "GET", url: "/api/policy/yaml" });
       expect(res.statusCode).toBe(200);
-      const body = res.json();
-      expect(body).toHaveProperty("yaml");
-      expect(typeof body.yaml).toBe("string");
-      expect(body.yaml).toContain("defaultAction");
+      expect(res.headers["content-type"]).toContain("text/plain");
+      expect(res.body).toContain("defaultAction");
     });
 
     it("POST /api/policy/validate returns valid for good policy", async () => {
@@ -257,6 +255,20 @@ describe("dashboard API", () => {
       expect(body[1].id).toBe("2");
     });
 
+    it("GET /api/audit-log rejects invalid query params", async () => {
+      const app = await dashboard.createDashboardServer();
+
+      const res = await app.inject({
+        method: "GET",
+        url: "/api/audit-log?limit=abc&offset=0",
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toHaveProperty(
+        "error",
+        "limit and offset must be non-negative integers",
+      );
+    });
+
     it("GET /api/audit-log/stats returns stats object", async () => {
       const app = await dashboard.createDashboardServer();
 
@@ -313,12 +325,22 @@ describe("dashboard API", () => {
       expect(res.statusCode).toBe(200);
       const body = res.json();
       expect(body).toHaveProperty("challenge");
+      expect(typeof body.challengeId).toBe("string");
       expect(body).toHaveProperty("rp");
       expect(body.rp.name).toBe("agent-2fa");
       expect(body.rp.id).toBe("localhost");
     });
 
-    it("POST /api/enroll/verify returns 400 with no challenge", async () => {
+    it("GET /api/enroll/options returns unique challenge ids", async () => {
+      const app = await dashboard.createDashboardServer();
+      const first = await app.inject({ method: "GET", url: "/api/enroll/options" });
+      const second = await app.inject({ method: "GET", url: "/api/enroll/options" });
+      expect(first.statusCode).toBe(200);
+      expect(second.statusCode).toBe(200);
+      expect(first.json().challengeId).not.toBe(second.json().challengeId);
+    });
+
+    it("POST /api/enroll/verify returns 400 with missing challenge id", async () => {
       // Create a fresh server (no prior /options call)
       vi.resetModules();
       const freshDashboard = await import(
@@ -332,6 +354,18 @@ describe("dashboard API", () => {
         payload: {},
       });
       expect(res.statusCode).toBe(400);
+      expect(res.json()).toHaveProperty("error", "Missing challengeId");
+    });
+
+    it("POST /api/enroll/verify returns 400 for unknown challenge id", async () => {
+      const app = await dashboard.createDashboardServer();
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/enroll/verify",
+        payload: { challengeId: "missing", response: {} },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toHaveProperty("error", "No challenge");
     });
   });
 });

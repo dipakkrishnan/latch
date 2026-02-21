@@ -79,7 +79,7 @@ export async function createDashboardServer(
           loadPolicy(true);
         }
         const yaml = fs.readFileSync(policyPath, "utf-8");
-        return reply.send({ yaml });
+        return reply.type("text/plain; charset=utf-8").send(yaml);
       });
 
       fastify.post("/validate", async (req, reply) => {
@@ -127,7 +127,6 @@ export async function createDashboardServer(
 
       fastify.get("/options", async (_req, reply) => {
         const existing = loadCredentials();
-        const userId = nanoid();
         const opts = await generateRegistrationOptions({
           rpName: RP_NAME,
           rpID: RP_ID,
@@ -143,21 +142,36 @@ export async function createDashboardServer(
             authenticatorAttachment: "platform",
           },
         });
-        challenges.set("current", opts.challenge);
-        return reply.send(opts);
+        const challengeId = nanoid();
+        challenges.set(challengeId, opts.challenge);
+        return reply.send({
+          ...opts,
+          challengeId,
+        });
       });
 
       fastify.post("/verify", async (req, reply) => {
-        const challenge = challenges.get("current");
+        const body = (req.body ?? {}) as {
+          challengeId?: unknown;
+          response?: unknown;
+        };
+        const challengeId =
+          typeof body.challengeId === "string" ? body.challengeId : undefined;
+        const responsePayload =
+          body.response !== undefined ? body.response : req.body;
+
+        if (!challengeId) {
+          return reply.status(400).send({ error: "Missing challengeId" });
+        }
+
+        const challenge = challenges.get(challengeId);
         if (!challenge) {
           return reply.status(400).send({ error: "No challenge" });
         }
 
-        const body = req.body as any;
-
         try {
           const verification = await verifyRegistrationResponse({
-            response: body,
+            response: responsePayload as any,
             expectedChallenge: challenge,
             expectedOrigin: `http://${RP_ID}:${port}`,
             expectedRPID: RP_ID,
@@ -173,11 +187,11 @@ export async function createDashboardServer(
             credentialID: credential.id,
             publicKey: Buffer.from(credential.publicKey).toString("base64"),
             counter: credential.counter,
-            transports: body.response?.transports,
+            transports: (responsePayload as any)?.response?.transports,
             createdAt: new Date().toISOString(),
           });
 
-          challenges.delete("current");
+          challenges.delete(challengeId);
           return reply.send({ ok: true });
         } catch (err) {
           return reply.status(400).send({ error: `${err}` });
@@ -193,8 +207,13 @@ export async function createDashboardServer(
       fastify.get<{
         Querystring: { limit?: string; offset?: string };
       }>("/", async (req, reply) => {
-        const limit = req.query.limit ? parseInt(req.query.limit, 10) : 50;
-        const offset = req.query.offset ? parseInt(req.query.offset, 10) : 0;
+        const limit = parseNonNegativeInt(req.query.limit, 50);
+        const offset = parseNonNegativeInt(req.query.offset, 0);
+        if (limit === null || offset === null) {
+          return reply.status(400).send({
+            error: "limit and offset must be non-negative integers",
+          });
+        }
         const entries = readAuditLog({ limit, offset });
         return reply.send(entries);
       });
@@ -208,4 +227,14 @@ export async function createDashboardServer(
   );
 
   return app;
+}
+
+function parseNonNegativeInt(
+  input: string | undefined,
+  defaultValue: number,
+): number | null {
+  if (input === undefined) return defaultValue;
+  if (!/^\d+$/.test(input)) return null;
+  const value = Number.parseInt(input, 10);
+  return Number.isFinite(value) ? value : null;
 }

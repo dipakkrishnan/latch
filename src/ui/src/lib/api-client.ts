@@ -27,8 +27,12 @@ export async function savePolicy(config: PolicyConfig): Promise<void> {
 }
 
 export async function getPolicyYaml(): Promise<string> {
-  const data = await fetchJSON<{ yaml: string }>("/api/policy/yaml");
-  return data.yaml;
+  const res = await fetch("/api/policy/yaml");
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(body || `Request failed: ${res.status}`);
+  }
+  return res.text();
 }
 
 export async function validatePolicy(
@@ -56,11 +60,14 @@ export async function getEnrollOptions(): Promise<any> {
   return fetchJSON<any>("/api/enroll/options");
 }
 
-export async function verifyEnrollment(response: any): Promise<void> {
+export async function verifyEnrollment(
+  challengeId: string,
+  response: any,
+): Promise<void> {
   await fetchJSON<{ ok: boolean }>("/api/enroll/verify", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(response),
+    body: JSON.stringify({ challengeId, response }),
   });
 }
 
