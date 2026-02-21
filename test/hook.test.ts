@@ -21,6 +21,8 @@ function runHook(
         env: {
           ...process.env,
           AGENT_2FA_DIR: dataDir,
+          AGENT_2FA_AGENT_ID: "agent-test",
+          AGENT_2FA_CLIENT: "codex",
         },
       },
       (error, stdout, stderr) => {
@@ -127,9 +129,13 @@ rules:
 
     expect(lines).toHaveLength(2);
     expect(lines[0].toolName).toBe("Read");
+    expect(lines[0].agentId).toBe("agent-test");
+    expect(lines[0].agentClient).toBe("codex");
     expect(lines[0].decision).toBe("allow");
     expect(lines[0].method).toBe("policy");
     expect(lines[1].toolName).toBe("BlockedTool");
+    expect(lines[1].agentId).toBe("agent-test");
+    expect(lines[1].agentClient).toBe("codex");
     expect(lines[1].decision).toBe("deny");
   });
 });

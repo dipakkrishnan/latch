@@ -3,7 +3,7 @@ import { customElement, state } from "lit/decorators.js";
 import { stringify as stringifyYaml } from "yaml";
 import { getPolicy, savePolicy, validatePolicy } from "../lib/api-client.js";
 import type { Action, PolicyConfig, PolicyRule } from "../lib/types.js";
-import { theme } from "../styles/theme.js";
+import { sharedStyles, theme } from "../styles/theme.js";
 import "../components/rule-row.js";
 import "../components/rule-form.js";
 import "../components/yaml-preview.js";
@@ -18,6 +18,7 @@ interface UiRule {
 export class PolicyEditor extends LitElement {
   static styles = [
     theme,
+    sharedStyles,
     css`
       :host {
         display: block;
@@ -37,8 +38,11 @@ export class PolicyEditor extends LitElement {
       }
       .layout {
         display: grid;
-        grid-template-columns: minmax(0, 1.15fr) minmax(300px, 0.85fr);
+        grid-template-columns: minmax(0, 1.25fr) minmax(300px, 0.75fr);
         gap: 0.95rem;
+      }
+      .layout.collapsed {
+        grid-template-columns: 1fr;
       }
       .card {
         border: 1px solid var(--border);
@@ -65,13 +69,6 @@ export class PolicyEditor extends LitElement {
         color: var(--text-muted);
         font-size: 0.82rem;
       }
-      select {
-        border: 1px solid var(--border);
-        border-radius: 10px;
-        padding: 0.4rem 0.56rem;
-        background: #10151c;
-        color: var(--text);
-      }
       button {
         border-radius: 10px;
         border: 1px solid var(--border);
@@ -97,6 +94,17 @@ export class PolicyEditor extends LitElement {
         );
         border-color: color-mix(in srgb, var(--green) 70%, #fff);
         color: #031109;
+      }
+      .save.success {
+        animation: save-pop 220ms ease-out;
+      }
+      @keyframes save-pop {
+        from {
+          transform: scale(0.98);
+        }
+        to {
+          transform: scale(1);
+        }
       }
       button:disabled {
         opacity: 0.45;
@@ -137,8 +145,27 @@ export class PolicyEditor extends LitElement {
         color: var(--text-muted);
         border: 1px dashed var(--border);
         border-radius: 11px;
-        padding: 0.8rem;
-        text-align: center;
+        padding: 1rem;
+        text-align: left;
+        display: grid;
+        gap: 0.5rem;
+      }
+      .empty-title {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        color: var(--text);
+        font-weight: 600;
+      }
+      .empty-icon {
+        width: 1.2rem;
+        height: 1.2rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        color: var(--blue-soft);
       }
       @media (max-width: 930px) {
         .layout {
@@ -159,6 +186,8 @@ export class PolicyEditor extends LitElement {
   @state() private editingIndex: number | null = null;
   @state() private validationErrors: string[] = [];
   @state() private draggedIndex: number | null = null;
+  @state() private yamlCollapsed = false;
+  @state() private saveSuccess = false;
 
   async connectedCallback(): Promise<void> {
     super.connectedCallback();
@@ -181,23 +210,41 @@ export class PolicyEditor extends LitElement {
           Define match rules in order. First matching rule wins.
         </div>
       </div>
-      <div class="layout">
+      <div class="layout ${this.yamlCollapsed ? "collapsed" : ""}">
         <div class="card">
           <div class="toolbar">
             <div class="control">
               <span>Default Action</span>
-              <select .value=${this.defaultAction} @change=${this.onDefaultActionChange}>
-                <option value="allow">allow</option>
-                <option value="ask">ask</option>
-                <option value="deny">deny</option>
-                <option value="browser">browser</option>
-                <option value="webauthn">webauthn</option>
-              </select>
+              <div class="segmented" role="radiogroup" aria-label="Default action">
+                ${(["allow", "ask", "deny", "browser", "webauthn"] as Action[]).map(
+                  (action) => html`
+                    <button
+                      class="action-${action} ${this.defaultAction === action ? "active" : ""}"
+                      role="radio"
+                      aria-checked=${this.defaultAction === action ? "true" : "false"}
+                      @click=${() => this.onDefaultActionPick(action)}
+                    >
+                      ${action}
+                    </button>
+                  `,
+                )}
+              </div>
             </div>
             <div class="control">
+              ${this.yamlCollapsed
+                ? html`<button class="ghost" @click=${this.onExpandYaml}>Show YAML</button>`
+                : ""}
               <button class="primary" @click=${this.onAddRule}>Add Rule</button>
-              <button class="save" ?disabled=${this.saving} @click=${this.onSavePolicy}>
-                ${this.saving ? "Saving..." : "Save Policy"}
+              <button
+                class="save ${this.saveSuccess ? "success" : ""}"
+                ?disabled=${this.saving}
+                @click=${this.onSavePolicy}
+              >
+                ${this.saving
+                  ? "Saving..."
+                  : this.saveSuccess
+                    ? "✓ Saved"
+                    : "Save Policy"}
               </button>
             </div>
           </div>
@@ -211,11 +258,23 @@ export class PolicyEditor extends LitElement {
             @drop-on-rule=${this.onDropOnRule}
           >
             ${this.rules.length === 0
-              ? html`<div class="empty">No rules yet. Add your first rule.</div>`
+              ? html`
+                  <div class="empty">
+                    <div class="empty-title">
+                      <span class="empty-icon">+</span>
+                      <span>No rules configured yet</span>
+                    </div>
+                    <div>Create your first match rule to control tool access order.</div>
+                    <div>
+                      <button class="primary" @click=${this.onAddRule}>Add Rule</button>
+                    </div>
+                  </div>
+                `
               : this.rules.map(
                   (rule, index) => html`
                     <rule-row
                       .index=${index}
+                      .order=${index + 1}
                       .toolPattern=${rule.match.tool}
                       .action=${rule.action}
                     ></rule-row>
@@ -232,7 +291,15 @@ export class PolicyEditor extends LitElement {
               `
             : ""}
         </div>
-        <yaml-preview .yaml=${yaml}></yaml-preview>
+        ${this.yamlCollapsed
+          ? html``
+          : html`
+              <yaml-preview
+                .yaml=${yaml}
+                .collapsed=${this.yamlCollapsed}
+                @toggle-yaml-preview=${this.onToggleYaml}
+              ></yaml-preview>
+            `}
       </div>
       <rule-form
         .open=${this.dialogOpen}
@@ -264,10 +331,18 @@ export class PolicyEditor extends LitElement {
     }
   }
 
-  private onDefaultActionChange(event: Event) {
-    this.defaultAction = (event.target as HTMLSelectElement).value as Action;
+  private onDefaultActionPick(action: Action) {
+    this.defaultAction = action;
     this.message = "";
     this.error = "";
+  }
+
+  private onToggleYaml() {
+    this.yamlCollapsed = !this.yamlCollapsed;
+  }
+
+  private onExpandYaml() {
+    this.yamlCollapsed = false;
   }
 
   private onAddRule() {
@@ -369,6 +444,16 @@ export class PolicyEditor extends LitElement {
 
       await savePolicy(config);
       this.message = "Policy saved.";
+      this.saveSuccess = true;
+      window.setTimeout(() => {
+        this.saveSuccess = false;
+      }, 1100);
+      this.dispatchEvent(
+        new CustomEvent("dashboard-data-changed", {
+          bubbles: true,
+          composed: true,
+        }),
+      );
       await this.load();
     } catch (err) {
       this.error = `Failed to save policy: ${String(err)}`;

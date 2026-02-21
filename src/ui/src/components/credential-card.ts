@@ -1,12 +1,13 @@
 import { LitElement, css, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import type { StoredCredential } from "../lib/types.js";
-import { theme } from "../styles/theme.js";
+import { relativeTime, sharedStyles, theme } from "../styles/theme.js";
 
 @customElement("credential-card")
 export class CredentialCard extends LitElement {
   static styles = [
     theme,
+    sharedStyles,
     css`
       :host {
         display: block;
@@ -26,6 +27,43 @@ export class CredentialCard extends LitElement {
         justify-content: space-between;
         align-items: flex-start;
         gap: 0.6rem;
+      }
+      .head-left {
+        display: grid;
+        gap: 0.38rem;
+        min-width: 0;
+      }
+      .topline {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.42rem;
+      }
+      .key-icon {
+        width: 1.05rem;
+        height: 1.05rem;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        position: relative;
+      }
+      .key-icon::before {
+        content: "";
+        position: absolute;
+        width: 0.26rem;
+        height: 0.26rem;
+        border: 1px solid var(--blue-soft);
+        border-radius: 999px;
+        top: 0.21rem;
+        left: 0.21rem;
+      }
+      .key-icon::after {
+        content: "";
+        position: absolute;
+        width: 0.35rem;
+        height: 1px;
+        background: var(--blue-soft);
+        top: 0.54rem;
+        left: 0.49rem;
+        box-shadow: 0.15rem 0 0 var(--blue-soft);
       }
       .id {
         font-family: var(--font-mono);
@@ -48,6 +86,29 @@ export class CredentialCard extends LitElement {
       .row span:last-child {
         color: var(--text);
         font-family: var(--font-mono);
+      }
+      .date {
+        text-align: right;
+      }
+      .date .rel {
+        color: var(--text);
+      }
+      .date .abs {
+        font-size: 0.7rem;
+        color: var(--text-muted);
+      }
+      .transports {
+        display: inline-flex;
+        gap: 0.26rem;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+      .transport {
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        padding: 0.1rem 0.35rem;
+        font-size: 0.68rem;
+        color: var(--text-muted);
       }
       button {
         border: 1px solid var(--border);
@@ -75,15 +136,33 @@ export class CredentialCard extends LitElement {
     return html`
       <div class="card">
         <div class="head">
-          <div class="id" title=${cred.credentialID}>${truncate(cred.credentialID)}</div>
+          <div class="head-left">
+            <div class="topline">
+              <span class="key-icon" aria-hidden="true"></span>
+              <span class="status-dot" title="Active credential"></span>
+            </div>
+            <div class="id" title=${cred.credentialID}>${truncate(cred.credentialID)}</div>
+          </div>
           <button @click=${this.onDelete}>Delete</button>
         </div>
         <div class="meta">
           <div class="row"><span>Counter</span><span>${cred.counter}</span></div>
-          <div class="row"><span>Created</span><span>${formatDate(cred.createdAt)}</span></div>
+          <div class="row">
+            <span>Created</span>
+            <span class="date" title=${formatDate(cred.createdAt)}>
+              <div class="rel">enrolled ${relativeTime(cred.createdAt)}</div>
+              <div class="abs">${formatDate(cred.createdAt)}</div>
+            </span>
+          </div>
           <div class="row">
             <span>Transports</span>
-            <span>${cred.transports?.join(", ") || "-"}</span>
+            <span class="transports">
+              ${(cred.transports ?? []).length === 0
+                ? html`<span class="transport">-</span>`
+                : (cred.transports ?? []).map(
+                    (transport) => html`<span class="transport">${transport}</span>`,
+                  )}
+            </span>
           </div>
         </div>
       </div>
@@ -118,4 +197,3 @@ function formatDate(iso: string): string {
     minute: "2-digit",
   }).format(date);
 }
-

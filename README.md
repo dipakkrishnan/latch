@@ -19,6 +19,15 @@ npm run dashboard
 
 Use `http://localhost:2222` for WebAuthn enrollment. Do not use `127.0.0.1`.
 
+## Agent Attribution
+
+Set `AGENT_2FA_AGENT_ID` per agent process to tag audit entries with agent identity.
+
+Example:
+```bash
+AGENT_2FA_AGENT_ID=agent-1 npm run dashboard
+```
+
 ## Useful Commands
 
 - `npm run dashboard`: start dashboard and open browser
@@ -49,4 +58,3 @@ Use `http://localhost:2222` for WebAuthn enrollment. Do not use `127.0.0.1`.
 - Verify entries appear
 - Verify tool-name and decision filters
 - Verify pagination controls
-

@@ -20,6 +20,8 @@ export interface StoredCredential {
 export interface AuditEntry {
   id: string;
   timestamp: string;
+  agentId?: string;
+  agentClient?: "claude-code" | "codex" | "openclaw" | "unknown";
   toolName: string;
   toolInput?: Record<string, unknown>;
   action: Action;

@@ -57,6 +57,19 @@ export class AuditLogPage extends LitElement {
           var(--card-bg)
         );
         padding: 0.62rem 0.7rem;
+        border-top-width: 2px;
+      }
+      .stat.total {
+        border-top-color: var(--blue-soft);
+      }
+      .stat.approvals {
+        border-top-color: var(--green-bright);
+      }
+      .stat.denials {
+        border-top-color: var(--red-bright);
+      }
+      .stat.asks {
+        border-top-color: var(--amber);
       }
       .k {
         color: var(--text-muted);
@@ -69,7 +82,7 @@ export class AuditLogPage extends LitElement {
       }
       .filters {
         display: grid;
-        grid-template-columns: 1fr 170px;
+        grid-template-columns: 1fr 1fr 1fr 170px;
         gap: 0.5rem;
         margin-bottom: 0.65rem;
       }
@@ -91,7 +104,7 @@ export class AuditLogPage extends LitElement {
       table {
         width: 100%;
         border-collapse: collapse;
-        min-width: 940px;
+        min-width: 1060px;
       }
       thead th {
         text-align: left;
@@ -164,7 +177,9 @@ export class AuditLogPage extends LitElement {
   };
   @state() private loading = false;
   @state() private error = "";
+  @state() private clientFilter = "all";
   @state() private toolFilter = "";
+  @state() private agentFilter = "";
   @state() private decisionFilter = "all";
   @state() private page = 0;
 
@@ -192,13 +207,25 @@ export class AuditLogPage extends LitElement {
       </div>
 
       <div class="stats">
-        <div class="stat"><div class="k">Total</div><div class="v">${this.stats.total}</div></div>
-        <div class="stat"><div class="k">Approvals</div><div class="v">${this.stats.approvals}</div></div>
-        <div class="stat"><div class="k">Denials</div><div class="v">${this.stats.denials}</div></div>
-        <div class="stat"><div class="k">Asks</div><div class="v">${this.stats.asks}</div></div>
+        <div class="stat total"><div class="k">Total</div><div class="v">${this.stats.total}</div></div>
+        <div class="stat approvals"><div class="k">Approvals</div><div class="v">${this.stats.approvals}</div></div>
+        <div class="stat denials"><div class="k">Denials</div><div class="v">${this.stats.denials}</div></div>
+        <div class="stat asks"><div class="k">Asks</div><div class="v">${this.stats.asks}</div></div>
       </div>
 
       <div class="filters">
+        <select .value=${this.clientFilter} @change=${this.onClientFilter}>
+          <option value="all">All clients</option>
+          <option value="claude-code">claude-code</option>
+          <option value="codex">codex</option>
+          <option value="openclaw">openclaw</option>
+          <option value="unknown">unknown</option>
+        </select>
+        <input
+          .value=${this.agentFilter}
+          @input=${this.onAgentFilter}
+          placeholder="Filter by agent id"
+        />
         <input
           .value=${this.toolFilter}
           @input=${this.onToolFilter}
@@ -222,6 +249,8 @@ export class AuditLogPage extends LitElement {
                 <thead>
                   <tr>
                     <th>Timestamp</th>
+                    <th>Client</th>
+                    <th>Agent</th>
                     <th>Tool</th>
                     <th>Action</th>
                     <th>Decision</th>
@@ -231,8 +260,8 @@ export class AuditLogPage extends LitElement {
                 </thead>
                 <tbody>
                   ${visible.map(
-                    (entry) =>
-                      html`<tr><log-entry .entry=${entry}></log-entry></tr>`,
+                    (entry, idx) =>
+                      html`<tr><log-entry .entry=${entry} .striped=${idx % 2 === 1}></log-entry></tr>`,
                   )}
                 </tbody>
               </table>
@@ -263,6 +292,12 @@ export class AuditLogPage extends LitElement {
       this.entries = entries;
       this.stats = stats;
       this.page = 0;
+      this.dispatchEvent(
+        new CustomEvent("dashboard-data-changed", {
+          bubbles: true,
+          composed: true,
+        }),
+      );
     } catch (err) {
       this.error = `Failed to load audit data: ${String(err)}`;
     } finally {
@@ -275,15 +310,31 @@ export class AuditLogPage extends LitElement {
     this.page = 0;
   }
 
+  private onClientFilter(event: Event) {
+    this.clientFilter = (event.target as HTMLSelectElement).value;
+    this.page = 0;
+  }
+
+  private onAgentFilter(event: Event) {
+    this.agentFilter = (event.target as HTMLInputElement).value;
+    this.page = 0;
+  }
+
   private onDecisionFilter(event: Event) {
     this.decisionFilter = (event.target as HTMLSelectElement).value;
     this.page = 0;
   }
 
   private filteredEntries(): AuditEntry[] {
+    const client = this.clientFilter;
     const tool = this.toolFilter.trim().toLowerCase();
+    const agent = this.agentFilter.trim().toLowerCase();
     const decision = this.decisionFilter;
     return this.entries.filter((entry) => {
+      const entryClient = entry.agentClient ?? "unknown";
+      if (client !== "all" && entryClient !== client) return false;
+      const agentId = (entry.agentId ?? "unknown").toLowerCase();
+      if (agent && !agentId.includes(agent)) return false;
       if (tool && !entry.toolName.toLowerCase().includes(tool)) return false;
       if (decision !== "all" && entry.decision !== decision) return false;
       return true;
@@ -299,4 +350,3 @@ export class AuditLogPage extends LitElement {
     this.page = Math.min(maxPage, this.page + 1);
   };
 }
-

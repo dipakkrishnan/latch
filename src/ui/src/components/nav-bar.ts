@@ -36,6 +36,7 @@ export class NavBar extends LitElement {
         display: inline-flex;
         align-items: center;
         justify-content: center;
+        gap: 0.35rem;
         min-width: 124px;
         border-radius: 999px;
         padding: 0.5rem 0.85rem;
@@ -58,16 +59,48 @@ export class NavBar extends LitElement {
           var(--blue)
         );
       }
+      .count {
+        font-family: var(--font-mono);
+        font-size: 0.68rem;
+        border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+        border-radius: 999px;
+        min-width: 1.2rem;
+        height: 1rem;
+        padding: 0 0.3rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--text-muted);
+      }
+      .lock {
+        font-size: 0.65rem;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+      }
+      a.active .count {
+        color: #dceeff;
+        border-color: rgba(255, 255, 255, 0.35);
+      }
     `,
   ];
 
   @property({ type: String }) active = "policy";
+  @property({ type: Number }) auditCount = 0;
+  @property({ type: Number }) credentialCount = 0;
 
   render() {
     const links = [
-      { route: "policy", label: "Policy Rules" },
-      { route: "credentials", label: "Credentials" },
-      { route: "audit", label: "Audit Log" },
+      { route: "policy", label: "Policy Rules", extra: null },
+      {
+        route: "credentials",
+        label: "Credentials",
+        extra: html`<span class="count"><span class="lock">L</span>${this.credentialCount}</span>`,
+      },
+      {
+        route: "audit",
+        label: "Audit Log",
+        extra: html`<span class="count">${this.auditCount}</span>`,
+      },
     ];
 
     return html`
@@ -81,6 +114,7 @@ export class NavBar extends LitElement {
                 class=${this.active === l.route ? "active" : ""}
               >
                 ${l.label}
+                ${l.extra ?? ""}
               </a>
             `,
           )}

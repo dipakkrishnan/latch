@@ -31,6 +31,17 @@ export class RuleForm extends LitElement {
         );
         box-shadow: 0 22px 70px rgba(0, 0, 0, 0.5);
         padding: 1.1rem 1.1rem 1rem;
+        animation: dialog-pop 140ms ease-out;
+      }
+      @keyframes dialog-pop {
+        from {
+          opacity: 0;
+          transform: scale(0.97);
+        }
+        to {
+          opacity: 1;
+          transform: scale(1);
+        }
       }
       h3 {
         font-size: 1rem;
@@ -59,14 +70,23 @@ export class RuleForm extends LitElement {
       input:focus,
       select:focus {
         outline: none;
-        border-color: color-mix(in srgb, var(--blue) 62%, var(--border));
-        box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.18);
+        border-color: color-mix(in srgb, var(--blue) 82%, var(--border));
+        box-shadow: 0 0 0 1px rgba(88, 166, 255, 0.52);
       }
       .regex-check {
         border: 1px solid var(--border);
         border-radius: 10px;
         padding: 0.65rem;
         background: rgba(13, 17, 23, 0.74);
+      }
+      .regex-label {
+        color: var(--text-muted);
+        font-size: 0.74rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        margin-bottom: 0.45rem;
+        padding-bottom: 0.35rem;
+        border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
       }
       .match {
         font-size: 0.8rem;
@@ -134,45 +154,53 @@ export class RuleForm extends LitElement {
       <div class="overlay" @click=${this.onOverlayClick}>
         <div class="dialog" @click=${this.onDialogClick}>
           <h3>${this.title}</h3>
-          <div class="field">
-            <label>Tool Pattern (regex)</label>
-            <input
-              .value=${this.toolPattern}
-              @input=${this.onPatternInput}
-              placeholder="Bash|Edit|Write"
-            />
-          </div>
-          <div class="field">
-            <label>Action</label>
-            <select .value=${this.action} @change=${this.onActionChange}>
-              <option value="allow">allow</option>
-              <option value="ask">ask</option>
-              <option value="deny">deny</option>
-              <option value="browser">browser</option>
-              <option value="webauthn">webauthn</option>
-            </select>
-          </div>
-          <div class="field">
-            <label>Regex Tester (tool name)</label>
-            <div class="regex-check">
+          <form @submit=${this.onSubmit}>
+            <div class="field">
+              <label>Tool Pattern (regex)</label>
               <input
-                .value=${this.regexInput}
-                @input=${this.onRegexInput}
-                placeholder="Try: Bash or Read"
+                .value=${this.toolPattern}
+                @input=${this.onPatternInput}
+                placeholder="Bash|Edit|Write"
               />
-              <div class="match ${regexTest.ok ? "ok" : "bad"}">
-                ${regexTest.message}
+            </div>
+            <div class="field">
+              <label>Action</label>
+              <select .value=${this.action} @change=${this.onActionChange}>
+                <option value="allow">allow</option>
+                <option value="ask">ask</option>
+                <option value="deny">deny</option>
+                <option value="browser">browser</option>
+                <option value="webauthn">webauthn</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Regex Tester (tool name)</label>
+              <div class="regex-check">
+                <div class="regex-label">Match Preview</div>
+                <input
+                  .value=${this.regexInput}
+                  @input=${this.onRegexInput}
+                  placeholder="Try: Bash or Read"
+                />
+                <div class="match ${regexTest.ok ? "ok" : "bad"}">
+                  ${regexTest.message}
+                </div>
               </div>
             </div>
-          </div>
-          ${this.formError ? html`<div class="error">${this.formError}</div>` : ""}
-          <div class="buttons">
-            <button class="cancel" @click=${this.onCancel}>Cancel</button>
-            <button class="save" @click=${this.onSave}>Save Rule</button>
-          </div>
+            ${this.formError ? html`<div class="error">${this.formError}</div>` : ""}
+            <div class="buttons">
+              <button type="button" class="cancel" @click=${this.onCancel}>Cancel</button>
+              <button type="submit" class="save">Save Rule</button>
+            </div>
+          </form>
         </div>
       </div>
     `;
+  }
+
+  private onSubmit(event: Event) {
+    event.preventDefault();
+    this.onSave();
   }
 
   private onPatternInput(event: Event) {
@@ -263,4 +291,3 @@ export class RuleForm extends LitElement {
     }
   }
 }
-

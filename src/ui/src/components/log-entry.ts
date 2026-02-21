@@ -1,12 +1,13 @@
 import { LitElement, css, html } from "lit";
-import { customElement, property } from "lit/decorators.js";
+import { customElement, property, state } from "lit/decorators.js";
 import type { AuditEntry } from "../lib/types.js";
-import { theme } from "../styles/theme.js";
+import { relativeTime, sharedStyles, theme } from "../styles/theme.js";
 
 @customElement("log-entry")
 export class LogEntryRow extends LitElement {
   static styles = [
     theme,
+    sharedStyles,
     css`
       :host {
         display: contents;
@@ -17,58 +18,86 @@ export class LogEntryRow extends LitElement {
         font-size: 0.8rem;
         vertical-align: top;
       }
+      td.striped {
+        background: rgba(255, 255, 255, 0.02);
+      }
       .tool {
         font-family: var(--font-mono);
-        color: var(--blue-soft);
+        color: #c8ddf7;
+        font-weight: 600;
       }
       .method,
       .action {
         font-family: var(--font-mono);
         color: var(--text-muted);
       }
-      .decision {
+      .time {
+        color: var(--text);
+      }
+      .method-badge {
         display: inline-flex;
         align-items: center;
-        justify-content: center;
-        min-width: 58px;
-        padding: 0.16rem 0.45rem;
-        border-radius: 999px;
-        font-size: 0.72rem;
-        text-transform: uppercase;
-        letter-spacing: 0.03em;
+        gap: 0.25rem;
         border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 0.12rem 0.38rem;
+        color: var(--text-muted);
+        font-size: 0.7rem;
       }
-      .allow {
-        color: var(--green-bright);
-        border-color: color-mix(in srgb, var(--green) 70%, var(--border));
-      }
-      .deny {
-        color: var(--red-bright);
-        border-color: color-mix(in srgb, var(--red) 70%, var(--border));
-      }
-      .ask {
-        color: var(--amber);
+      .method-icon {
+        width: 0.72rem;
+        text-align: center;
+        opacity: 0.9;
       }
       .reason {
         color: var(--text-muted);
         max-width: 360px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        cursor: pointer;
+      }
+      .reason:hover,
+      .reason.expanded {
+        white-space: normal;
+        overflow: visible;
       }
     `,
   ];
 
   @property({ attribute: false }) entry: AuditEntry | null = null;
+  @property({ type: Boolean }) striped = false;
+  @state() private reasonExpanded = false;
 
   render() {
     const entry = this.entry;
     if (!entry) return html``;
+    const stripedClass = this.striped ? "striped" : "";
     return html`
-      <td>${formatDate(entry.timestamp)}</td>
-      <td class="tool">${entry.toolName}</td>
-      <td class="action">${entry.action}</td>
-      <td><span class="decision ${entry.decision}">${entry.decision}</span></td>
-      <td class="method">${entry.method}</td>
-      <td class="reason">${entry.reason}</td>
+      <td class="time ${stripedClass}" title=${formatDate(entry.timestamp)}>${relativeTime(entry.timestamp)}</td>
+      <td class="method ${stripedClass}">${entry.agentClient ?? "unknown"}</td>
+      <td class="method ${stripedClass}">${entry.agentId ?? "unknown"}</td>
+      <td class="tool ${stripedClass}">${entry.toolName}</td>
+      <td class="action ${stripedClass}">${entry.action}</td>
+      <td class="${stripedClass}"><span class="badge badge-${entry.decision}">${entry.decision}</span></td>
+      <td class="method ${stripedClass}">
+        <span class="method-badge">
+          <span class="method-icon">${methodIcon(entry.method)}</span>
+          <span>${entry.method}</span>
+        </span>
+      </td>
+      <td
+        class="reason ${stripedClass} ${this.reasonExpanded ? "expanded" : ""}"
+        title=${entry.reason}
+        @click=${this.toggleReason}
+      >
+        ${entry.reason}
+      </td>
     `;
+  }
+
+  private toggleReason() {
+    this.reasonExpanded = !this.reasonExpanded;
   }
 }
 
@@ -85,3 +114,15 @@ function formatDate(iso: string): string {
   }).format(date);
 }
 
+function methodIcon(method: AuditEntry["method"]): string {
+  switch (method) {
+    case "policy":
+      return "P";
+    case "browser":
+      return "B";
+    case "webauthn":
+      return "W";
+    case "fail-open":
+      return "!";
+  }
+}

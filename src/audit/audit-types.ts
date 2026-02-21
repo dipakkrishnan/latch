@@ -10,6 +10,8 @@ export type AuditMethod = z.infer<typeof AuditMethodSchema>;
 export const AuditEntrySchema = z.object({
   id: z.string().min(1),
   timestamp: z.string().datetime(),
+  agentId: z.string().min(1).optional(),
+  agentClient: z.enum(["claude-code", "codex", "openclaw", "unknown"]).optional(),
   toolName: z.string().min(1),
   toolInput: z.record(z.unknown()).optional(),
   action: ActionSchema,
@@ -27,4 +29,3 @@ export const AppendAuditEntrySchema = AuditEntrySchema.omit({
   timestamp: z.string().datetime().optional(),
 });
 export type AppendAuditEntry = z.infer<typeof AppendAuditEntrySchema>;
-

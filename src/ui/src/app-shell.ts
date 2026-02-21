@@ -1,6 +1,7 @@
 import { LitElement, html, css } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import { theme } from "./styles/theme.js";
+import { getAuditStats, getCredentials } from "./lib/api-client.js";
 import "./components/nav-bar.js";
 import "./pages/policy-editor.js";
 import "./pages/credential-manager.js";
@@ -24,10 +25,12 @@ export class AppShell extends LitElement {
             circle at 90% 0%,
             rgba(35, 134, 54, 0.15),
             transparent 28%
-          );
+          ),
+          radial-gradient(circle, rgba(255, 255, 255, 0.06) 0.8px, transparent 0.8px);
+        background-size: auto, auto, 18px 18px;
       }
       .wrap {
-        max-width: 1200px;
+        max-width: 1280px;
         margin: 0 auto;
         padding: 1.2rem 1.2rem 2.2rem;
       }
@@ -61,16 +64,22 @@ export class AppShell extends LitElement {
   ];
 
   @state() private route = "policy";
+  @state() private auditCount = 0;
+  @state() private credentialCount = 0;
   private boundUpdateRoute = () => this._updateRoute();
+  private boundRefreshCounts = () => this.refreshCounts();
 
   connectedCallback() {
     super.connectedCallback();
     window.addEventListener("hashchange", this.boundUpdateRoute);
+    this.addEventListener("dashboard-data-changed", this.boundRefreshCounts);
     this._updateRoute();
+    void this.refreshCounts();
   }
 
   disconnectedCallback() {
     window.removeEventListener("hashchange", this.boundUpdateRoute);
+    this.removeEventListener("dashboard-data-changed", this.boundRefreshCounts);
     super.disconnectedCallback();
   }
 
@@ -81,10 +90,29 @@ export class AppShell extends LitElement {
   render() {
     return html`
       <div class="wrap">
-        <header><nav-bar .active=${this.route}></nav-bar></header>
+        <header>
+          <nav-bar
+            .active=${this.route}
+            .auditCount=${this.auditCount}
+            .credentialCount=${this.credentialCount}
+          ></nav-bar>
+        </header>
         <main>${this._renderPage()}</main>
       </div>
     `;
+  }
+
+  private async refreshCounts() {
+    try {
+      const [stats, credentials] = await Promise.all([
+        getAuditStats(),
+        getCredentials(),
+      ]);
+      this.auditCount = stats.total;
+      this.credentialCount = credentials.length;
+    } catch {
+      // Keep nav resilient if one endpoint is unavailable.
+    }
   }
 
   private _renderPage() {

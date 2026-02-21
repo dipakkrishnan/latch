@@ -80,9 +80,28 @@ export class CredentialManager extends LitElement {
       .empty {
         border: 1px dashed var(--border);
         border-radius: var(--radius);
-        text-align: center;
+        text-align: left;
         color: var(--text-muted);
-        padding: 1rem;
+        padding: 1rem 1.05rem;
+        display: grid;
+        gap: 0.5rem;
+      }
+      .empty-title {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        color: var(--text);
+        font-weight: 600;
+      }
+      .empty-icon {
+        width: 1.2rem;
+        height: 1.2rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        color: var(--purple);
       }
       .status {
         margin-bottom: 0.65rem;
@@ -134,7 +153,16 @@ export class CredentialManager extends LitElement {
       ${this.credentials.length === 0
         ? html`
             <div class="empty">
-              No passkeys enrolled yet. Click <strong>Enroll Passkey</strong> to add one.
+              <div class="empty-title">
+                <span class="empty-icon">K</span>
+                <span>No passkeys enrolled yet</span>
+              </div>
+              <div>Enroll a credential to require biometric approval for protected actions.</div>
+              <div>
+                <button class="enroll" ?disabled=${this.busy} @click=${this.enrollPasskey}>
+                  ${this.busy ? "Working..." : "Enroll Passkey"}
+                </button>
+              </div>
             </div>
           `
         : html`
@@ -176,6 +204,7 @@ export class CredentialManager extends LitElement {
       await deleteCredential(detail.credentialID);
       this.message = "Credential deleted.";
       await this.loadCredentials();
+      this.dispatchDashboardChanged();
     } catch (err) {
       this.error = `Failed to delete credential: ${String(err)}`;
     } finally {
@@ -229,12 +258,22 @@ export class CredentialManager extends LitElement {
       await verifyEnrollment(options.challengeId, registrationResponse);
       this.message = "Passkey enrolled.";
       await this.loadCredentials();
+      this.dispatchDashboardChanged();
     } catch (err) {
       this.error = `Enrollment failed: ${formatEnrollmentError(err)}`;
     } finally {
       this.busy = false;
     }
   };
+
+  private dispatchDashboardChanged() {
+    this.dispatchEvent(
+      new CustomEvent("dashboard-data-changed", {
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  }
 
   private preparePublicKeyOptions(
     options: EnrollmentOptions,

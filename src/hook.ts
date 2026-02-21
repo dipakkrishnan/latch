@@ -1,8 +1,14 @@
+import { execFileSync } from "node:child_process";
 import { appendAuditEntry } from "./audit/audit-log.js";
 import { loadPolicy } from "./policy/policy-loader.js";
 import { evaluatePolicy } from "./policy/policy-engine.js";
 import { HookInputSchema, type HookOutput, type Action } from "./policy/policy-types.js";
 import { startApprovalFlow } from "./approval/approval-server.js";
+
+type AgentClient = "claude-code" | "codex" | "openclaw" | "unknown";
+
+const DETECTED_CLIENT = detectAgentClient();
+const AGENT_ID = process.env.AGENT_2FA_AGENT_ID ?? defaultAgentId(DETECTED_CLIENT);
 
 /**
  * Read all of stdin as a string.
@@ -74,6 +80,8 @@ async function main(): Promise<void> {
       },
     };
     appendAuditEntrySafe({
+      agentId: AGENT_ID,
+      agentClient: DETECTED_CLIENT,
       toolName: input.tool_name,
       toolInput: input.tool_input,
       action: result.action,
@@ -94,6 +102,8 @@ async function main(): Promise<void> {
   };
 
   appendAuditEntrySafe({
+    agentId: AGENT_ID,
+    agentClient: DETECTED_CLIENT,
     toolName: input.tool_name,
     toolInput: input.tool_input,
     action: result.action,
@@ -108,6 +118,8 @@ main().catch((err) => {
   process.stderr.write(`Hook error: ${err}\n`);
   // On error, fail open with allow so we don't block the agent
   appendAuditEntrySafe({
+    agentId: AGENT_ID,
+    agentClient: DETECTED_CLIENT,
     toolName: "unknown",
     action: "allow",
     decision: "allow",
@@ -123,3 +135,43 @@ main().catch((err) => {
   };
   writeOutput(fallback);
 });
+
+function detectAgentClient(): AgentClient {
+  const explicit = process.env.AGENT_2FA_CLIENT;
+  if (explicit) {
+    const normalized = normalizeClient(explicit);
+    if (normalized !== "unknown") return normalized;
+  }
+
+  const fromId = process.env.AGENT_2FA_AGENT_ID;
+  if (fromId) {
+    const normalized = normalizeClient(fromId);
+    if (normalized !== "unknown") return normalized;
+  }
+
+  const parentCmd = getParentCommandLine();
+  return normalizeClient(parentCmd);
+}
+
+function defaultAgentId(client: AgentClient): string {
+  return client === "unknown" ? "unknown" : `${client}-adhoc`;
+}
+
+function normalizeClient(value: string): AgentClient {
+  const source = value.toLowerCase();
+  if (source.includes("claude")) return "claude-code";
+  if (source.includes("codex")) return "codex";
+  if (source.includes("openclaw")) return "openclaw";
+  return "unknown";
+}
+
+function getParentCommandLine(): string {
+  try {
+    return execFileSync("ps", ["-o", "command=", "-p", String(process.ppid)], {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return "";
+  }
+}
