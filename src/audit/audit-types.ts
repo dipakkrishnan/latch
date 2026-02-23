@@ -7,6 +7,9 @@ export type AuditDecision = z.infer<typeof AuditDecisionSchema>;
 export const AuditMethodSchema = z.enum(["policy", "browser", "webauthn", "fail-open"]);
 export type AuditMethod = z.infer<typeof AuditMethodSchema>;
 
+export const AuditModeSchema = z.enum(["hook", "mcp"]);
+export type AuditMode = z.infer<typeof AuditModeSchema>;
+
 export const AuditEntrySchema = z.object({
   id: z.string().min(1),
   timestamp: z.string().datetime(),
@@ -18,6 +21,7 @@ export const AuditEntrySchema = z.object({
   decision: AuditDecisionSchema,
   reason: z.string(),
   method: AuditMethodSchema,
+  mode: AuditModeSchema.optional(),
 });
 export type AuditEntry = z.infer<typeof AuditEntrySchema>;
 

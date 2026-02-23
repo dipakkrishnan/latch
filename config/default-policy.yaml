@@ -10,6 +10,14 @@
 #
 # Rules are evaluated top-to-bottom; first match wins.
 # If no rule matches, defaultAction is used.
+#
+# MCP proxy mode examples (namespaced as alias__toolName):
+#   - match: { tool: "github__.*" }
+#     action: browser
+#   - match: { tool: "fs__write_file" }
+#     action: webauthn
+#   - match: { tool: "fs__read_file" }
+#     action: allow
 
 defaultAction: allow
 

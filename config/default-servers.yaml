@@ -1,0 +1,18 @@
+# Latch MCP server configuration
+# Copy this file to ~/.agent-2fa/servers.yaml and customize.
+#
+# Each entry defines a downstream MCP server that Latch proxies.
+# Tools are exposed to the agent as alias__toolName.
+#
+# Example:
+#   servers:
+#     - alias: fs
+#       command: npx
+#       args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+#     - alias: github
+#       command: npx
+#       args: ["-y", "@modelcontextprotocol/server-github"]
+#       env:
+#         GITHUB_TOKEN: "ghp_..."
+
+servers: []

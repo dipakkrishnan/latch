@@ -88,6 +88,7 @@ async function main(): Promise<void> {
       decision: permissionDecision,
       reason: permissionDecisionReason,
       method: result.action,
+      mode: "hook",
     });
     writeOutput(output);
   }
@@ -110,6 +111,7 @@ async function main(): Promise<void> {
     decision: permissionDecision,
     reason: result.reason,
     method: "policy",
+    mode: "hook",
   });
   writeOutput(output);
 }
@@ -125,6 +127,7 @@ main().catch((err) => {
     decision: "allow",
     reason: `Hook error (fail-open): ${err}`,
     method: "fail-open",
+    mode: "hook",
   });
   const fallback: HookOutput = {
     hookSpecificOutput: {
@@ -143,14 +146,17 @@ function detectAgentClient(): AgentClient {
     if (normalized !== "unknown") return normalized;
   }
 
+  const envDetected = detectFromKnownEnvironment();
+  if (envDetected !== "unknown") return envDetected;
+
   const fromId = process.env.AGENT_2FA_AGENT_ID;
   if (fromId) {
     const normalized = normalizeClient(fromId);
     if (normalized !== "unknown") return normalized;
   }
 
-  const parentCmd = getParentCommandLine();
-  return normalizeClient(parentCmd);
+  const ancestry = getProcessAncestryCommandLine(6);
+  return normalizeClient(ancestry);
 }
 
 function defaultAgentId(client: AgentClient): string {
@@ -165,13 +171,54 @@ function normalizeClient(value: string): AgentClient {
   return "unknown";
 }
 
-function getParentCommandLine(): string {
+function detectFromKnownEnvironment(): AgentClient {
+  const env = process.env;
+
+  // Codex session/runtime signals.
+  if (env.CODEX_THREAD_ID || env.CODEX_SANDBOX || env.CODEX_CI) {
+    return "codex";
+  }
+
+  // Claude Code signals (explicit prefixes and common binary marker).
+  const envKeys = Object.keys(env);
+  if (envKeys.some((key) => key.toLowerCase().startsWith("claude"))) {
+    return "claude-code";
+  }
+
+  // OpenClaw signals.
+  if (envKeys.some((key) => key.toLowerCase().startsWith("openclaw"))) {
+    return "openclaw";
+  }
+
+  return "unknown";
+}
+
+function getProcessAncestryCommandLine(maxDepth: number): string {
+  let pid = process.ppid;
+  const commands: string[] = [];
+  for (let depth = 0; depth < maxDepth && pid > 1; depth += 1) {
+    const info = readProcessInfo(pid);
+    if (!info) break;
+    if (info.command) commands.push(info.command);
+    pid = info.ppid;
+  }
+  return commands.join(" ");
+}
+
+function readProcessInfo(pid: number): { command: string; ppid: number } | null {
   try {
-    return execFileSync("ps", ["-o", "command=", "-p", String(process.ppid)], {
+    const output = execFileSync("ps", ["-o", "ppid=,command=", "-p", String(pid)], {
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "ignore"],
     }).trim();
+    if (!output) return null;
+    const match = output.match(/^(\d+)\s+(.*)$/);
+    if (!match) return null;
+    const nextPpid = Number.parseInt(match[1], 10);
+    const command = match[2] ?? "";
+    if (!Number.isFinite(nextPpid)) return null;
+    return { command, ppid: nextPpid };
   } catch {
-    return "";
+    return null;
   }
 }

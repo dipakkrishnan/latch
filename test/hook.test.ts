@@ -11,18 +11,31 @@ let tempDataDir = "";
 function runHook(
   input: object,
   dataDir: string,
+  options: {
+    extraEnv?: Record<string, string>;
+    omitAgentEnv?: boolean;
+  } = {},
 ): Promise<{ stdout: string; stderr: string; code: number }> {
   return new Promise((resolve) => {
+    const baseEnv: Record<string, string> = {
+      ...process.env,
+      AGENT_2FA_DIR: dataDir,
+      CODEX_THREAD_ID: process.env.CODEX_THREAD_ID ?? "test-thread",
+    } as Record<string, string>;
+
+    if (!options.omitAgentEnv) {
+      baseEnv.AGENT_2FA_AGENT_ID = "agent-test";
+      baseEnv.AGENT_2FA_CLIENT = "codex";
+    }
+
     const child = execFile(
       process.execPath,
       [HOOK_PATH],
       {
         timeout: 10000,
         env: {
-          ...process.env,
-          AGENT_2FA_DIR: dataDir,
-          AGENT_2FA_AGENT_ID: "agent-test",
-          AGENT_2FA_CLIENT: "codex",
+          ...baseEnv,
+          ...(options.extraEnv ?? {}),
         },
       },
       (error, stdout, stderr) => {
@@ -137,5 +150,24 @@ rules:
     expect(lines[1].agentId).toBe("agent-test");
     expect(lines[1].agentClient).toBe("codex");
     expect(lines[1].decision).toBe("deny");
+  });
+
+  it("detects codex client from environment when AGENT_2FA_* is not set", async () => {
+    await runHook(
+      { tool_name: "Read", tool_input: { file_path: "/tmp/a" } },
+      tempDataDir,
+      { omitAgentEnv: true, extraEnv: { CODEX_THREAD_ID: "thread-fallback" } },
+    );
+
+    const auditPath = path.join(tempDataDir, "audit.jsonl");
+    const lines = fs
+      .readFileSync(auditPath, "utf-8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0].agentClient).toBe("codex");
+    expect(lines[0].agentId).toBe("codex-adhoc");
   });
 });
