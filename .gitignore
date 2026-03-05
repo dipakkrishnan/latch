@@ -3,3 +3,8 @@ dist/
 *.js.map
 .DS_Store
 src/ui/node_modules/
+
+__pycache__/
+*.pyc
+.claude/
+.vscode/
