@@ -6,6 +6,9 @@ from .config import CONFIG_DIR
 from .policy import load_policy, evaluate
 from .audit import append
 from .approval import start_approval_flow
+from .logging_utils import debug_enabled, init_logger
+
+_LOGGER = init_logger("latch.serve", debug=debug_enabled())
 
 
 def _load_servers():
@@ -20,19 +23,27 @@ def _add(mcp, alias, client, tool):
     async def call(**kw):
         policy = load_policy()
         action, reason = evaluate(qname, policy)
+        _LOGGER.debug("policy evaluated tool=%s action=%s", qname, action)
 
         if action in ("browser", "webauthn"):
-            approved = await start_approval_flow(qname, dict(kw), require_webauthn=(action == "webauthn"))
+            approved, flow_reason = await start_approval_flow(
+                qname,
+                dict(kw),
+                require_webauthn=(action == "webauthn"),
+            )
             decision = "allow" if approved else "deny"
-            reason = f"{'Approved' if approved else 'Denied'} in browser ({action})"
+            reason = flow_reason
             append(qname, kw, action, decision, reason, action, "mcp")
             if not approved:
-                return [{"type": "text", "text": f"Denied by user in browser ({action})"}]
+                _LOGGER.info("tool denied tool=%s reason=%s", qname, reason)
+                return [{"type": "text", "text": reason}]
         elif action == "ask":
             append(qname, kw, action, "deny", f"{reason} (ask not supported in MCP mode, denied)", "policy", "mcp")
+            _LOGGER.info("tool denied tool=%s reason=ask-not-supported-in-mcp", qname)
             return [{"type": "text", "text": f'Blocked: tool "{qname}" requires interactive approval (ask), not supported in MCP mode. Update policy to allow/browser/webauthn.'}]
         elif action == "deny":
             append(qname, kw, action, "deny", reason, "policy", "mcp")
+            _LOGGER.info("tool denied tool=%s reason=%s", qname, reason)
             return [{"type": "text", "text": f"Blocked by policy: {reason}"}]
         else:
             append(qname, kw, action, "allow", reason, "policy", "mcp")
