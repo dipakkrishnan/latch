@@ -16,10 +16,13 @@ latch init
 ## OpenClaw Integration
 
 ```bash
-openclaw plugins install openclaw-latch
+openclaw plugins install -l ./openclaw-plugin
+openclaw plugins doctor
+openclaw plugins list
 ```
 
 The plugin automatically installs `latch-agent`, runs `latch init`, and registers `latch-serve` as an MCP server.
+After the plugin is published, you can also install by package name with `openclaw plugins install openclaw-latch`.
 
 ## Claude Code Integration
 

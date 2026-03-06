@@ -1,0 +1,29 @@
+{
+  "id": "openclaw-latch",
+  "name": "OpenClaw Latch",
+  "description": "Latch security gate plugin for OpenClaw with policy-based tool gating and optional WebAuthn approval.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "autoInstall": {
+        "type": "boolean",
+        "default": true,
+        "description": "Install latch-agent automatically when latch-serve is not found."
+      },
+      "pythonInstallCommand": {
+        "type": "string",
+        "default": "",
+        "description": "Optional custom command used to install latch-agent."
+      },
+      "additionalArgs": {
+        "type": "array",
+        "default": [],
+        "items": {
+          "type": "string"
+        },
+        "description": "Optional extra args passed to latch-serve."
+      }
+    }
+  }
+}
