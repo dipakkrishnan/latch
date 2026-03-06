@@ -1,4 +1,4 @@
-import asyncio, base64, json, sys, webbrowser
+import asyncio, base64, json, secrets, sys, time, webbrowser
 from aiohttp import web
 from webauthn import generate_registration_options, verify_registration_response
 from webauthn.helpers.structs import (
@@ -9,9 +9,12 @@ from webauthn.helpers.structs import (
     AttestationConveyancePreference,
 )
 from . import credentials
+from .logging_utils import debug_enabled, init_logger
 
 RP_ID = "localhost"
 RP_NAME = "agent-2fa"
+ENROLL_CHALLENGE_TTL_SEC = 300
+_LOGGER = init_logger("latch.enroll", debug=debug_enabled())
 
 
 def _b64url(b: bytes) -> str:
@@ -33,14 +36,20 @@ def _descriptor_json(descriptor) -> dict | None:
 
 
 async def _run():
-    challenge = None
+    challenges: dict = {}
     port_holder: list = []
+
+    def prune_challenges():
+        now = time.time()
+        expired = [cid for cid, rec in challenges.items() if now - rec["t"] > ENROLL_CHALLENGE_TTL_SEC]
+        for cid in expired:
+            challenges.pop(cid, None)
 
     async def get_page(req):
         return web.Response(content_type="text/html", text=_ENROLL_HTML)
 
     async def get_options(req):
-        nonlocal challenge
+        prune_challenges()
         existing = credentials.load()
         opts = generate_registration_options(
             rp_id=RP_ID,
@@ -54,9 +63,11 @@ async def _run():
                 authenticator_attachment=AuthenticatorAttachment.PLATFORM,
             ),
         )
-        challenge = opts.challenge
+        challenge_id = secrets.token_urlsafe(16)
+        challenges[challenge_id] = {"challenge": opts.challenge, "t": time.time()}
         exclude_credentials = [d for d in (_descriptor_json(c) for c in (opts.exclude_credentials or [])) if d]
         return web.json_response({
+            "challengeId": challenge_id,
             "challenge": _b64url(opts.challenge),
             "rp": {"name": opts.rp.name, "id": opts.rp.id},
             "user": {"id": _b64url(opts.user.id), "name": opts.user.name, "displayName": opts.user.display_name},
@@ -72,13 +83,27 @@ async def _run():
         })
 
     async def post_verify(req):
-        if challenge is None:
-            return web.json_response({"error": "No challenge"}, status=400)
         body = await req.json()
+        challenge_id = body.get("challengeId")
+        if not challenge_id:
+            return web.json_response({"error": "Missing challengeId"}, status=400)
+        if challenge_id not in challenges:
+            return web.json_response({"error": "No challenge"}, status=400)
+        rec = challenges.pop(challenge_id)
+        if time.time() - rec["t"] > ENROLL_CHALLENGE_TTL_SEC:
+            return web.json_response({"error": "Challenge expired"}, status=400)
+        response = body.get("response", body)
+        if not isinstance(response, dict):
+            return web.json_response({"error": "Invalid response payload"}, status=400)
+        if response.get("authenticatorAttachment") != "platform":
+            return web.json_response(
+                {"error": "Platform authenticator required. Use Touch ID / Face ID / Windows Hello on this device."},
+                status=400,
+            )
         try:
             verification = verify_registration_response(
-                credential=body,
-                expected_challenge=challenge,
+                credential=response,
+                expected_challenge=rec["challenge"],
                 expected_rp_id=RP_ID,
                 expected_origin=f"http://{RP_ID}:{port_holder[0]}",
             )
@@ -86,12 +111,13 @@ async def _run():
                 "credentialID": _b64url(verification.credential_id),
                 "publicKey": base64.b64encode(verification.credential_public_key).decode(),
                 "counter": verification.sign_count,
-                "transports": body.get("response", {}).get("transports"),
+                "transports": response.get("response", {}).get("transports"),
                 "createdAt": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
             })
             sys.stderr.write("Passkey enrolled successfully!\n")
             return web.json_response({"ok": True})
         except Exception as e:
+            _LOGGER.warning("enroll verification failed: %s", e)
             return web.json_response({"error": str(e)}, status=400)
 
     app = web.Application()
@@ -153,14 +179,17 @@ _ENROLL_HTML = """<!DOCTYPE html>
       btn.disabled = true;
       statusEl.textContent = "Getting options\\u2026";
       const options = await fetch("/enroll/options").then(r => r.json());
+      if (!options.challengeId || typeof options.challengeId !== "string") throw new Error("Missing enrollment challenge id.");
+      const challengeId = options.challengeId;
       options.challenge = b64url(options.challenge);
       options.user.id = b64url(options.user.id);
       if (options.excludeCredentials) options.excludeCredentials = options.excludeCredentials.map(c => ({...c, id: b64url(c.id)}));
+      delete options.challengeId;
       statusEl.textContent = "Touch your sensor\\u2026";
       const cred = await navigator.credentials.create({ publicKey: options });
       const reg = { id: cred.id, rawId: buf64(cred.rawId), type: cred.type, response: { attestationObject: buf64(cred.response.attestationObject), clientDataJSON: buf64(cred.response.clientDataJSON), transports: cred.response.getTransports ? cred.response.getTransports() : [] }, clientExtensionResults: cred.getClientExtensionResults(), authenticatorAttachment: cred.authenticatorAttachment };
       statusEl.textContent = "Verifying\\u2026";
-      const res = await fetch("/enroll/verify", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(reg) });
+      const res = await fetch("/enroll/verify", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ challengeId, response: reg }) });
       if (res.ok) { statusEl.textContent = "Passkey enrolled! You can close this tab."; statusEl.style.color = "#3fb950"; }
       else { const err = await res.json().catch(() => ({})); throw new Error(err.error || "Verification failed"); }
     } catch (err) { statusEl.textContent = "Error: " + err.message; statusEl.style.color = "#f85149"; btn.disabled = false; }
