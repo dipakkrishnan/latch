@@ -1,13 +1,13 @@
-import json, os, uuid
+import json, uuid
 from datetime import datetime, timezone
-from pathlib import Path
 
-_DIR = Path(os.environ.get("AGENT_2FA_DIR", Path.home() / ".agent-2fa"))
-_PATH = _DIR / "audit.jsonl"
+from .config import CONFIG_DIR
+
+_PATH = CONFIG_DIR / "audit.jsonl"
 
 
 def append(tool_name, tool_input, action, decision, reason, method, mode):
-    _DIR.mkdir(parents=True, exist_ok=True)
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     entry = {
         "id": str(uuid.uuid4()),
         "timestamp": datetime.now(timezone.utc).isoformat(),

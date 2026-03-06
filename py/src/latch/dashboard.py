@@ -8,7 +8,8 @@ from webauthn.helpers.structs import (
 import yaml
 
 from . import credentials, audit
-from .policy import load_policy, _PATH as _POLICY_PATH, _DIR as _POLICY_DIR
+from .config import CONFIG_DIR
+from .policy import load_policy, _PATH as _POLICY_PATH
 
 RP_ID = "localhost"
 RP_NAME = "agent-2fa"
@@ -64,7 +65,7 @@ async def create_app(port=2222) -> web.Application:
         errs = _validate_policy(config)
         if errs:
             return web.json_response({"error": "Invalid policy", "issues": errs}, status=400)
-        _POLICY_DIR.mkdir(parents=True, exist_ok=True)
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         _POLICY_PATH.write_text(yaml.dump(config, default_flow_style=False))
         load_policy(force=True)
         return web.json_response({"ok": True})
@@ -89,7 +90,7 @@ async def create_app(port=2222) -> web.Application:
         errs = _validate_policy(config)
         if errs:
             return web.json_response({"error": "Invalid policy", "issues": errs}, status=400)
-        _POLICY_DIR.mkdir(parents=True, exist_ok=True)
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         _POLICY_PATH.write_text(raw)
         load_policy(force=True)
         return web.json_response({"ok": True})

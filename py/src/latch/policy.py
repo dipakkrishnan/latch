@@ -1,10 +1,10 @@
-import os, re
-from pathlib import Path
+import re
 import yaml
 
-_DIR = Path(os.environ.get("AGENT_2FA_DIR", Path.home() / ".agent-2fa"))
-_PATH = _DIR / "policy.yaml"
-_DEFAULT = """\
+from .config import CONFIG_DIR
+
+_PATH = CONFIG_DIR / "policy.yaml"
+DEFAULT_POLICY = """\
 defaultAction: allow
 rules:
   - match: {tool: Bash}
@@ -22,8 +22,8 @@ def load_policy(force=False):
     if _cache and not force:
         return _cache
     if not _PATH.exists():
-        _DIR.mkdir(parents=True, exist_ok=True)
-        _PATH.write_text(_DEFAULT)
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        _PATH.write_text(DEFAULT_POLICY)
     _cache = yaml.safe_load(_PATH.read_text())
     return _cache
 

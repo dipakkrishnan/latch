@@ -1,9 +1,8 @@
-import json, os
-from datetime import datetime, timezone
-from pathlib import Path
+import json
 
-_DIR = Path(os.environ.get("AGENT_2FA_DIR", Path.home() / ".agent-2fa"))
-_PATH = _DIR / "credentials.json"
+from .config import CONFIG_DIR
+
+_PATH = CONFIG_DIR / "credentials.json"
 
 
 def load():
@@ -36,5 +35,5 @@ def update_counter(credential_id: str, counter: int) -> bool:
 
 
 def _save_all(creds: list):
-    _DIR.mkdir(parents=True, exist_ok=True)
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     _PATH.write_text(json.dumps(creds, indent=2))
