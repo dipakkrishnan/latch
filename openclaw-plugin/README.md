@@ -42,4 +42,4 @@ Then add to your OpenClaw MCP config:
 
 ## Configuration
 
-Edit `~/.agent-2fa/policy.yaml` to customize tool gating rules. See the [latch-agent docs](https://github.com/anthropics/latch) for policy format details.
+Edit `~/.agent-2fa/policy.yaml` to customize tool gating rules. See the [latch-agent docs](https://github.com/dipakkrishnan/latch) for policy format details.

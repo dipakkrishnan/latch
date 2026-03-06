@@ -36,9 +36,9 @@ dependencies = [
 dev = ["pytest", "pytest-asyncio"]
 
 [project.urls]
-Homepage = "https://github.com/anthropics/latch"
-Repository = "https://github.com/anthropics/latch"
-Issues = "https://github.com/anthropics/latch/issues"
+Homepage = "https://github.com/dipakkrishnan/latch"
+Repository = "https://github.com/dipakkrishnan/latch"
+Issues = "https://github.com/dipakkrishnan/latch/issues"
 
 [project.scripts]
 latch = "latch.cli:main"
