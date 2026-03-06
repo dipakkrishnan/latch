@@ -3,6 +3,7 @@ import asyncio, json, os, subprocess, sys
 from .policy import load_policy, evaluate
 from .audit import append
 from .approval import start_approval_flow
+from .logging_utils import env_flag, init_logger
 
 
 def _detect_client():
@@ -51,6 +52,8 @@ def _ancestry(depth):
 
 _CLIENT = _detect_client()
 _AGENT_ID = os.environ.get("AGENT_2FA_AGENT_ID") or (f"{_CLIENT}-adhoc" if _CLIENT != "unknown" else "unknown")
+_DEBUG = env_flag("LATCH_HOOK_DEBUG")
+_LOGGER = init_logger("latch.hook", debug=_DEBUG)
 
 
 def _to_decision(action):
@@ -65,38 +68,59 @@ def _output(decision, reason):
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": decision, "permissionDecisionReason": reason}}), end="")
 
 
+def _log(message):
+    if not _DEBUG:
+        return
+    _LOGGER.debug(message)
+
+
 async def _main(raw):
     try:
+        _log(f"hook invoked; client={_CLIENT} agent_id={_AGENT_ID}")
         data = json.loads(raw)
         tool = data["tool_name"]
         tool_input = data.get("tool_input", {})
+        _log(f"parsed input; tool={tool}")
         policy = load_policy()
         action, reason = evaluate(tool, policy)
+        _log(f"policy evaluated; action={action} reason={reason}")
 
         if action in ("browser", "webauthn"):
+            _log(f"starting approval flow; mode={action}")
             approved = await start_approval_flow(tool, tool_input, require_webauthn=(action == "webauthn"))
             decision = "allow" if approved else "deny"
             reason = f"{'Approved' if approved else 'Denied'} in browser ({action})"
+            _log(f"approval flow complete; approved={approved} decision={decision}")
             try:
                 append(tool, tool_input, action, decision, reason, action, "hook")
+                _log("audit append success")
             except Exception as e:
-                print(f"Audit error (ignored): {e}", file=sys.stderr)
+                _LOGGER.warning("Audit error (ignored): %s", e)
+                _log(f"audit append failed: {e}")
             _output(decision, reason)
+            _log(f"response emitted; decision={decision}")
             return
 
         decision = _to_decision(action)
         try:
             append(tool, tool_input, action, decision, reason, "policy", "hook")
+            _log("audit append success")
         except Exception as e:
-            print(f"Audit error (ignored): {e}", file=sys.stderr)
+            _LOGGER.warning("Audit error (ignored): %s", e)
+            _log(f"audit append failed: {e}")
         _output(decision, reason)
+        _log(f"response emitted; decision={decision}")
     except Exception as e:
-        print(f"Hook error: {e}", file=sys.stderr)
+        _LOGGER.error("Hook error: %s", e)
+        _log(f"hook exception: {e}")
         try:
             append("unknown", {}, "allow", "allow", f"Hook error (fail-open): {e}", "fail-open", "hook")
+            _log("fail-open audit append success")
         except Exception:
+            _log("fail-open audit append failed")
             pass
         _output("allow", f"Hook error (fail-open): {e}")
+        _log("response emitted; decision=allow (fail-open)")
 
 
 def main():

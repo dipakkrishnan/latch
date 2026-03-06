@@ -1,8 +1,9 @@
-import json, os, uuid
+import json, uuid
 from datetime import datetime, timezone
-from pathlib import Path
 
-_DIR = Path(os.environ.get("AGENT_2FA_DIR", Path.home() / ".agent-2fa"))
+from .config import CONFIG_DIR
+
+_DIR = CONFIG_DIR
 _PATH = _DIR / "audit.jsonl"
 
 

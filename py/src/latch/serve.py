@@ -1,13 +1,13 @@
-import asyncio, os, sys
-from pathlib import Path
+import asyncio, sys
 import yaml
 from fastmcp import FastMCP, Client
 
+from .config import CONFIG_DIR
 from .policy import load_policy, evaluate
 from .audit import append
 from .approval import start_approval_flow
 
-_DIR = Path(os.environ.get("AGENT_2FA_DIR", Path.home() / ".agent-2fa"))
+_DIR = CONFIG_DIR
 
 
 def _load_servers():

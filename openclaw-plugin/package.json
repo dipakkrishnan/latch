@@ -1,0 +1,19 @@
+{
+  "name": "openclaw-latch",
+  "version": "0.1.0",
+  "description": "Latch security gate for OpenClaw — policy-based tool gating with audit logging",
+  "type": "module",
+  "main": "index.mjs",
+  "openclaw": {
+    "plugin": true
+  },
+  "keywords": [
+    "openclaw",
+    "plugin",
+    "latch",
+    "security",
+    "mcp",
+    "tool-gating"
+  ],
+  "license": "MIT"
+}
