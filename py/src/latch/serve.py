@@ -1,19 +1,17 @@
 import asyncio, sys
-import yaml
 from fastmcp import FastMCP, Client
 
-from .config import CONFIG_DIR
-from .policy import load_policy, evaluate
+from .policy import load_policy, evaluate, policy_uses_ask
 from .audit import append
 from .approval import start_approval_flow
 from .logging_utils import debug_enabled, init_logger
+from .server_registry import load_servers
 
 _LOGGER = init_logger("latch.serve", debug=debug_enabled())
 
 
 def _load_servers():
-    p = CONFIG_DIR / "servers.yaml"
-    return (yaml.safe_load(p.read_text()) or {}).get("servers", []) if p.exists() else []
+    return load_servers().get("servers", [])
 
 
 def _add(mcp, alias, client, tool):
@@ -55,10 +53,29 @@ def _add(mcp, alias, client, tool):
 
 
 async def _run():
+    configured_servers = _load_servers()
+    if not configured_servers:
+        print(
+            "No downstream servers configured in servers.yaml.\n"
+            "Run: latch onboard --server-alias fs --server-command npx --server-arg=-y "
+            "--server-arg=@modelcontextprotocol/server-filesystem --server-arg=/tmp\n"
+            "Or add one manually with: latch add-server <alias> <command> [args...]",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+
+    policy = load_policy()
+    if policy_uses_ask(policy):
+        print(
+            "Warning: policy contains action=ask. In MCP mode, ask decisions are denied.\n"
+            "Use allow/browser/webauthn for MCP-facing rules (or run: latch onboard to apply MCP-safe defaults).",
+            file=sys.stderr,
+        )
+
     mcp = FastMCP("latch-proxy")
     clients: dict = {}
 
-    for s in _load_servers():
+    for s in configured_servers:
         c = Client({"command": s["command"], "args": s.get("args", []), "env": s.get("env") or {}})
         await c.__aenter__()
         clients[s["alias"]] = c
