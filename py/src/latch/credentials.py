@@ -2,8 +2,7 @@ import json
 
 from .config import CONFIG_DIR
 
-_DIR = CONFIG_DIR
-_PATH = _DIR / "credentials.json"
+_PATH = CONFIG_DIR / "credentials.json"
 
 
 def load():
@@ -36,5 +35,5 @@ def update_counter(credential_id: str, counter: int) -> bool:
 
 
 def _save_all(creds: list):
-    _DIR.mkdir(parents=True, exist_ok=True)
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     _PATH.write_text(json.dumps(creds, indent=2))

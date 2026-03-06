@@ -9,10 +9,6 @@ function isOnPath(cmd) {
   }
 }
 
-function hasPipx() {
-  return isOnPath("pipx");
-}
-
 function installLatch() {
   if (isOnPath("latch-serve")) {
     return true;
@@ -20,7 +16,7 @@ function installLatch() {
 
   console.log("[openclaw-latch] latch-serve not found on PATH. Installing latch-agent...");
 
-  if (hasPipx()) {
+  if (isOnPath("pipx")) {
     try {
       execSync("pipx install latch-agent", { stdio: "inherit" });
       return true;
@@ -45,9 +41,6 @@ function installLatch() {
 }
 
 function initLatch() {
-  if (!isOnPath("latch")) {
-    return;
-  }
   try {
     execSync("latch init", { stdio: "inherit" });
   } catch {

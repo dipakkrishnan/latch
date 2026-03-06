@@ -3,8 +3,7 @@ import yaml
 
 from .config import CONFIG_DIR
 
-_DIR = CONFIG_DIR
-_PATH = _DIR / "policy.yaml"
+_PATH = CONFIG_DIR / "policy.yaml"
 DEFAULT_POLICY = """\
 defaultAction: allow
 rules:
@@ -23,7 +22,7 @@ def load_policy(force=False):
     if _cache and not force:
         return _cache
     if not _PATH.exists():
-        _DIR.mkdir(parents=True, exist_ok=True)
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         _PATH.write_text(DEFAULT_POLICY)
     _cache = yaml.safe_load(_PATH.read_text())
     return _cache

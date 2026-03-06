@@ -3,12 +3,11 @@ from datetime import datetime, timezone
 
 from .config import CONFIG_DIR
 
-_DIR = CONFIG_DIR
-_PATH = _DIR / "audit.jsonl"
+_PATH = CONFIG_DIR / "audit.jsonl"
 
 
 def append(tool_name, tool_input, action, decision, reason, method, mode):
-    _DIR.mkdir(parents=True, exist_ok=True)
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     entry = {
         "id": str(uuid.uuid4()),
         "timestamp": datetime.now(timezone.utc).isoformat(),

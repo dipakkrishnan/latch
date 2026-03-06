@@ -7,11 +7,9 @@ from .policy import load_policy, evaluate
 from .audit import append
 from .approval import start_approval_flow
 
-_DIR = CONFIG_DIR
-
 
 def _load_servers():
-    p = _DIR / "servers.yaml"
+    p = CONFIG_DIR / "servers.yaml"
     return (yaml.safe_load(p.read_text()) or {}).get("servers", []) if p.exists() else []
 
 

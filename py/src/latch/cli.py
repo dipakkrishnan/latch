@@ -1,10 +1,9 @@
 import argparse
-import json
 import sys
-from pathlib import Path
 
 
 def _cmd_init(args):
+    from pathlib import Path
     from .init import init
 
     config_dir = Path(args.dir) if args.dir else None
@@ -37,44 +36,38 @@ def _cmd_enroll(args):
 
 def _cmd_status(args):
     from .config import CONFIG_DIR
+    from . import audit, credentials
+    from .policy import load_policy
+    from .serve import _load_servers
 
     print(f"Config dir: {CONFIG_DIR}")
-    print(f"  exists: {CONFIG_DIR.exists()}")
     if not CONFIG_DIR.exists():
+        print("  not initialized (run 'latch init')")
         return
 
-    policy_path = CONFIG_DIR / "policy.yaml"
-    if policy_path.exists():
-        import yaml
-
-        policy = yaml.safe_load(policy_path.read_text()) or {}
+    try:
+        policy = load_policy()
         rules = policy.get("rules", [])
         print(f"  policy: {len(rules)} rule(s), default={policy.get('defaultAction', 'N/A')}")
-    else:
+    except Exception:
         print("  policy: not found")
 
-    creds_path = CONFIG_DIR / "credentials.json"
-    if creds_path.exists():
-        creds = json.loads(creds_path.read_text())
+    try:
+        creds = credentials.load()
         print(f"  credentials: {len(creds)} registered")
-    else:
+    except Exception:
         print("  credentials: not found")
 
-    audit_path = CONFIG_DIR / "audit.jsonl"
-    if audit_path.exists():
-        lines = [l for l in audit_path.read_text().splitlines() if l.strip()]
-        print(f"  audit: {len(lines)} entries")
-    else:
+    try:
+        s = audit.stats()
+        print(f"  audit: {s['total']} entries")
+    except Exception:
         print("  audit: not found")
 
-    servers_path = CONFIG_DIR / "servers.yaml"
-    if servers_path.exists():
-        import yaml
-
-        servers = yaml.safe_load(servers_path.read_text()) or {}
-        server_list = servers.get("servers", [])
-        print(f"  servers: {len(server_list)} configured")
-    else:
+    try:
+        servers = _load_servers()
+        print(f"  servers: {len(servers)} configured")
+    except Exception:
         print("  servers: not found")
 
 
