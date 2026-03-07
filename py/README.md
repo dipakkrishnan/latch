@@ -10,16 +10,25 @@ Security defaults:
 
 ```bash
 pip install latch-agent
-latch init
+latch onboard \
+  --server-alias fs \
+  --server-command npx \
+  --server-arg=-y \
+  --server-arg=@modelcontextprotocol/server-filesystem \
+  --server-arg=/tmp
+latch serve
 ```
 
 ## OpenClaw Integration
 
 ```bash
-openclaw plugins install openclaw-latch
+openclaw plugins install -l ./openclaw-plugin
+openclaw plugins doctor
+openclaw plugins list
 ```
 
 The plugin automatically installs `latch-agent`, runs `latch init`, and registers `latch-serve` as an MCP server.
+After the plugin is published, you can also install by package name with `openclaw plugins install openclaw-latch`.
 
 ## Claude Code Integration
 
@@ -54,6 +63,8 @@ rules:
 
 Actions: `allow`, `deny`, `ask`, `browser` (browser-based approval), `webauthn` (passkey required).
 
+For MCP mode, prefer `allow`, `browser`, or `webauthn`. `ask` actions are denied in MCP mode.
+
 ## Configuration
 
 | Variable | Default | Description |
@@ -68,10 +79,14 @@ Actions: `allow`, `deny`, `ask`, `browser` (browser-based approval), `webauthn` 
 
 ```
 latch init       # Initialize config directory
+latch onboard    # Guided setup for MCP mode
 latch hook       # Run as stdin/stdout hook
 latch serve      # Run as MCP proxy server
 latch dashboard  # Launch web dashboard
 latch enroll     # Enroll a WebAuthn passkey
+latch add-server # Add/update downstream MCP server
+latch remove-server # Remove downstream MCP server
+latch list-servers  # List configured downstream MCP servers
 latch status     # Show config summary
 ```
 

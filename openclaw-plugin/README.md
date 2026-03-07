@@ -4,6 +4,16 @@ Latch security gate plugin for OpenClaw. Adds policy-based tool gating with audi
 
 ## Install
 
+Local/linked install (recommended while developing this repo):
+
+```bash
+openclaw plugins install -l ./openclaw-plugin
+openclaw plugins doctor
+openclaw plugins list
+```
+
+Package-name install (use after publishing `openclaw-latch`):
+
 ```
 openclaw plugins install openclaw-latch
 ```
@@ -39,6 +49,13 @@ Then add to your OpenClaw MCP config:
   }
 }
 ```
+
+## Troubleshooting
+
+- `latch-serve not found`: run `pipx install latch-agent && latch init`
+- `pipx` unavailable: install `pipx` or ensure `pip` is on your PATH
+- plugin installed but not active: run `openclaw plugins doctor` and confirm the plugin id `openclaw-latch`
+- MCP registration issues: use the JSON snippet printed by the plugin for manual MCP setup
 
 ## Configuration
 
