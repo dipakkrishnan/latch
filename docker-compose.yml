@@ -1,0 +1,20 @@
+services:
+  latch:
+    build: ./py
+    volumes:
+      - latch-data:/data
+    ports:
+      - "8200:8200"
+    environment:
+      - LATCH_APPROVAL_PORT=8200
+
+  # Example: OpenClaw connecting to latch as a sidecar
+  # openclaw:
+  #   image: openclaw:latest
+  #   environment:
+  #     - LATCH_URL=http://latch:8200
+  #   depends_on:
+  #     - latch
+
+volumes:
+  latch-data:

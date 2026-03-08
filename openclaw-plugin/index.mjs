@@ -47,6 +47,29 @@ function initLatch() {
 }
 
 export default function activate(api) {
+  // Docker / sidecar mode: connect to latch over the network
+  const latchUrl = process.env.LATCH_URL;
+  if (latchUrl) {
+    console.log(`[openclaw-latch] Using network latch at ${latchUrl}`);
+    if (api && typeof api.registerMcpServer === "function") {
+      api.registerMcpServer("latch", {
+        url: latchUrl,
+      });
+      console.log("[openclaw-latch] Registered latch (network) as MCP server.");
+    } else {
+      console.log("[openclaw-latch] MCP server config for manual setup:");
+      console.log(
+        JSON.stringify(
+          { mcpServers: { latch: { url: latchUrl } } },
+          null,
+          2,
+        ),
+      );
+    }
+    return;
+  }
+
+  // Local mode: spawn latch-serve as a subprocess
   const installed = installLatch();
 
   if (!installed) {

@@ -2,7 +2,8 @@ import asyncio, json, os, subprocess, sys
 
 from .policy import load_policy, evaluate
 from .audit import append
-from .approval import start_approval_flow
+from .approval import get_approval_server, start_approval_flow
+from .tunnel import start_tunnel, get_tunnel_url
 from .logging_utils import env_flag, init_logger
 
 
@@ -87,9 +88,25 @@ async def _main(raw):
 
         if action in ("browser", "webauthn"):
             _log(f"starting approval flow; mode={action}")
-            approved = await start_approval_flow(tool, tool_input, require_webauthn=(action == "webauthn"))
+            server = await get_approval_server()
+
+            # Start tunnel if not already active
+            tunnel_url = get_tunnel_url()
+            if not tunnel_url and server.port:
+                tunnel_url = await start_tunnel(server.port)
+                server.set_tunnel_url(tunnel_url)
+
+            approval_id, url = server.create_request(tool, tool_input, require_webauthn=(action == "webauthn"))
+            sys.stderr.write(f"Approval URL: {url}\n")
+
+            # Open browser locally as fallback
+            if not tunnel_url:
+                import webbrowser
+                webbrowser.open(url)
+
+            approved = await server.wait_for_decision(approval_id)
             decision = "allow" if approved else "deny"
-            reason = f"{'Approved' if approved else 'Denied'} in browser ({action})"
+            reason = f"{'Approved' if approved else 'Denied'} via approval flow ({action})"
             _log(f"approval flow complete; approved={approved} decision={decision}")
             try:
                 append(tool, tool_input, action, decision, reason, action, "hook")

@@ -1,4 +1,5 @@
 import argparse
+import os
 import sys
 
 
@@ -17,6 +18,8 @@ def _cmd_hook(args):
 
 
 def _cmd_serve(args):
+    if args.port:
+        os.environ["LATCH_APPROVAL_PORT"] = str(args.port)
     from .serve import main
 
     main()
@@ -31,7 +34,7 @@ def _cmd_dashboard(args):
 def _cmd_enroll(args):
     from .enroll import main
 
-    main()
+    main(remote=args.remote)
 
 
 def _cmd_status(args):
@@ -87,12 +90,14 @@ def main():
     p_hook.set_defaults(func=_cmd_hook)
 
     p_serve = sub.add_parser("serve", help="Run as an MCP proxy server")
+    p_serve.add_argument("--port", type=int, default=0, help="Approval server port (default: random)")
     p_serve.set_defaults(func=_cmd_serve)
 
     p_dashboard = sub.add_parser("dashboard", help="Launch the web dashboard")
     p_dashboard.set_defaults(func=_cmd_dashboard)
 
     p_enroll = sub.add_parser("enroll", help="Enroll a WebAuthn passkey")
+    p_enroll.add_argument("--remote", action="store_true", help="Enroll via Cloudflare tunnel (for phone enrollment)")
     p_enroll.set_defaults(func=_cmd_enroll)
 
     p_status = sub.add_parser("status", help="Show config summary")
