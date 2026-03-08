@@ -1,33 +1,19 @@
-# agent-2fa policy configuration
-# Copy this file to ~/.agent-2fa/policy.yaml and customize.
+# Latch policy configuration
+# Copy to ~/.latch/policy.yaml and customize.
 #
 # Actions:
-#   allow    — auto-approve (no prompt)
-#   ask      — Claude Code shows its normal permission prompt in terminal
-#   deny     — block the tool call
-#   browser  — open localhost approval page (Phase 2)
-#   webauthn — require passkey/Touch ID approval (Phase 3)
+#   allow   — auto-approve (no prompt)
+#   deny    — block the command
+#   approve — send TOTP approval request to user
 #
+# Patterns are matched against exec commands using regex.
 # Rules are evaluated top-to-bottom; first match wins.
 # If no rule matches, defaultAction is used.
-#
-# MCP proxy mode examples (namespaced as alias__toolName):
-#   - match: { tool: "github__.*" }
-#     action: browser
-#   - match: { tool: "fs__write_file" }
-#     action: webauthn
-#   - match: { tool: "fs__read_file" }
-#     action: allow
 
-defaultAction: allow
+defaultAction: approve
 
 rules:
-  - match:
-      tool: "Bash"
-    action: ask
-  - match:
-      tool: "Edit|Write|NotebookEdit"
-    action: ask
-  - match:
-      tool: "Read|Glob|Grep"
+  - match: {tool: '(ls|pwd|whoami|cat|head|tail|echo|date|env)'}
     action: allow
+  - match: {tool: '(rm|chmod|chown|kill|shutdown|reboot)'}
+    action: deny
