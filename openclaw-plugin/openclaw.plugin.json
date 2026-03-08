@@ -1,0 +1,8 @@
+{
+  "id": "openclaw-latch",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}
