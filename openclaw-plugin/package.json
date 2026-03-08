@@ -9,7 +9,8 @@
     "README.md"
   ],
   "openclaw": {
-    "plugin": true
+    "plugin": true,
+    "extensions": ["./index.mjs"]
   },
   "keywords": [
     "openclaw",
