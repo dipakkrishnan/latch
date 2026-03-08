@@ -3,17 +3,20 @@ from aiohttp import web
 from webauthn import generate_registration_options, verify_registration_response
 from webauthn.helpers.structs import (
     AuthenticatorSelectionCriteria, UserVerificationRequirement,
-    ResidentKeyRequirement, AttestationConveyancePreference,
+    ResidentKeyRequirement, AttestationConveyancePreference, AuthenticatorAttachment,
 )
 import yaml
 
 from . import credentials, audit
 from .config import CONFIG_DIR
 from .policy import load_policy, _PATH as _POLICY_PATH
+from .logging_utils import debug_enabled, init_logger
 
 RP_ID = "localhost"
 RP_NAME = "agent-2fa"
 _VALID_ACTIONS = {"allow", "ask", "deny", "browser", "webauthn"}
+ENROLL_CHALLENGE_TTL_SEC = 300
+_LOGGER = init_logger("latch.dashboard", debug=debug_enabled())
 
 
 def _b64url(b: bytes) -> str:
@@ -51,6 +54,12 @@ def _validate_policy(config) -> list:
 async def create_app(port=2222) -> web.Application:
     app = web.Application()
     challenges: dict = {}
+
+    def prune_challenges():
+        now = time.time()
+        expired = [cid for cid, rec in challenges.items() if now - rec["t"] > ENROLL_CHALLENGE_TTL_SEC]
+        for cid in expired:
+            challenges.pop(cid, None)
 
     async def get_index(req):
         return web.Response(content_type="text/html", text=_HTML)
@@ -109,6 +118,7 @@ async def create_app(port=2222) -> web.Application:
 
     # --- Enroll ---
     async def enroll_options(req):
+        prune_challenges()
         existing = credentials.load()
         opts = generate_registration_options(
             rp_id=RP_ID, rp_name=RP_NAME, user_name="agent-2fa-user",
@@ -117,6 +127,7 @@ async def create_app(port=2222) -> web.Application:
             authenticator_selection=AuthenticatorSelectionCriteria(
                 resident_key=ResidentKeyRequirement.PREFERRED,
                 user_verification=UserVerificationRequirement.REQUIRED,
+                authenticator_attachment=AuthenticatorAttachment.PLATFORM,
             ),
         )
         cid = secrets.token_urlsafe(16)
@@ -144,14 +155,24 @@ async def create_app(port=2222) -> web.Application:
         })
 
     async def enroll_verify(req):
+        prune_challenges()
         body = await req.json()
         cid = body.get("challengeId")
-        if not cid or cid not in challenges:
+        if not cid:
+            return web.json_response({"error": "Missing challengeId"}, status=400)
+        if cid not in challenges:
             return web.json_response({"error": "No challenge"}, status=400)
         rec = challenges.pop(cid)
-        if time.time() - rec["t"] > 300:
+        if time.time() - rec["t"] > ENROLL_CHALLENGE_TTL_SEC:
             return web.json_response({"error": "Challenge expired"}, status=400)
         response = body.get("response", body)
+        if not isinstance(response, dict):
+            return web.json_response({"error": "Invalid response payload"}, status=400)
+        if response.get("authenticatorAttachment") != "platform":
+            return web.json_response(
+                {"error": "Platform authenticator required. Use Touch ID / Face ID / Windows Hello on this device."},
+                status=400,
+            )
         try:
             v = verify_registration_response(
                 credential=response,
@@ -168,6 +189,7 @@ async def create_app(port=2222) -> web.Application:
             })
             return web.json_response({"ok": True})
         except Exception as e:
+            _LOGGER.warning("enroll verify failed: %s", e)
             return web.json_response({"error": str(e)}, status=400)
 
     # --- Audit ---

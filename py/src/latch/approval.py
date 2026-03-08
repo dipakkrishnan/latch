@@ -1,11 +1,14 @@
-import asyncio, base64, json, secrets, sys, webbrowser
+import asyncio, base64, json, os, secrets, sys, webbrowser
 from aiohttp import web
 from webauthn import generate_authentication_options, verify_authentication_response
 from webauthn.helpers.structs import UserVerificationRequirement
 
 from . import credentials
+from .logging_utils import debug_enabled, init_logger
 
 RP_ID = "localhost"
+DEFAULT_APPROVAL_TIMEOUT_SEC = 120.0
+_LOGGER = init_logger("latch.approval", debug=debug_enabled())
 
 
 def _b64url(b: bytes) -> str:
@@ -36,10 +39,12 @@ def _normalize_credential_id(value: str | None) -> str | None:
     return _b64url(decoded)
 
 
-async def start_approval_flow(tool_name: str, tool_input: dict, require_webauthn=False) -> bool:
+async def start_approval_flow(tool_name: str, tool_input: dict, require_webauthn=False) -> tuple[bool, str]:
     approval_id = secrets.token_urlsafe(16)
     state: dict = {"challenge": None, "approved": False}
     done = asyncio.Event()
+    deny_reason = "Denied in browser"
+    _LOGGER.debug("starting approval flow tool=%s require_webauthn=%s", tool_name, require_webauthn)
 
     async def get_page(req):
         if req.match_info["id"] != approval_id:
@@ -71,6 +76,7 @@ async def start_approval_flow(tool_name: str, tool_input: dict, require_webauthn
         })
 
     async def post_decide(req):
+        nonlocal deny_reason
         if req.match_info["id"] != approval_id:
             raise web.HTTPNotFound()
         body = await req.json()
@@ -79,11 +85,15 @@ async def start_approval_flow(tool_name: str, tool_input: dict, require_webauthn
         if decision == "approve" and require_webauthn:
             auth_response = body.get("authResponse")
             if not auth_response or state["challenge"] is None:
+                deny_reason = "Denied in browser (webauthn): assertion-or-challenge-missing"
+                done.set()
                 return web.json_response({"error": "WebAuthn assertion required"}, status=400)
             creds = credentials.load()
             received_id = _normalize_credential_id(auth_response.get("id") or auth_response.get("rawId"))
             match = next((c for c in creds if _normalize_credential_id(c.get("credentialID")) == received_id), None)
             if not match:
+                deny_reason = "Denied in browser (webauthn): unknown-credential"
+                done.set()
                 return web.json_response({"error": "Unknown credential"}, status=400)
             try:
                 port = req.url.port
@@ -98,9 +108,14 @@ async def start_approval_flow(tool_name: str, tool_input: dict, require_webauthn
                 )
                 credentials.update_counter(match["credentialID"], verification.new_sign_count)
             except Exception as e:
+                _LOGGER.warning("WebAuthn verification failed: %s", e)
+                deny_reason = "Denied in browser (webauthn): verification-failed"
+                done.set()
                 return web.json_response({"error": f"WebAuthn error: {e}"}, status=400)
 
         state["approved"] = decision == "approve"
+        if not state["approved"]:
+            deny_reason = f"Denied in browser ({'webauthn' if require_webauthn else 'browser'}): user-denied"
         done.set()
         return web.json_response({"ok": True})
 
@@ -119,9 +134,44 @@ async def start_approval_flow(tool_name: str, tool_input: dict, require_webauthn
     sys.stderr.write(f"Opening approval page: {url}\n")
     webbrowser.open(url)
 
-    await done.wait()
+    timeout_sec = _approval_timeout_seconds()
+    try:
+        await asyncio.wait_for(done.wait(), timeout=timeout_sec)
+    except TimeoutError:
+        deny_reason = f"Denied in browser ({'webauthn' if require_webauthn else 'browser'}): timeout"
+        _LOGGER.warning("Approval timed out after %.2fs for tool=%s", timeout_sec, tool_name)
+        await runner.cleanup()
+        return False, deny_reason
+
     await runner.cleanup()
-    return state["approved"]
+    if state["approved"]:
+        _LOGGER.debug("approval flow approved tool=%s", tool_name)
+        return True, f"Approved in browser ({'webauthn' if require_webauthn else 'browser'})"
+    _LOGGER.debug("approval flow denied tool=%s reason=%s", tool_name, deny_reason)
+    return False, deny_reason
+
+
+def _approval_timeout_seconds() -> float:
+    raw = os.environ.get("LATCH_APPROVAL_TIMEOUT_SEC", "").strip()
+    if not raw:
+        return DEFAULT_APPROVAL_TIMEOUT_SEC
+    try:
+        parsed = float(raw)
+    except ValueError:
+        _LOGGER.warning(
+            "Invalid LATCH_APPROVAL_TIMEOUT_SEC=%r; using default %.2fs",
+            raw,
+            DEFAULT_APPROVAL_TIMEOUT_SEC,
+        )
+        return DEFAULT_APPROVAL_TIMEOUT_SEC
+    if parsed <= 0:
+        _LOGGER.warning(
+            "Non-positive LATCH_APPROVAL_TIMEOUT_SEC=%r; using default %.2fs",
+            raw,
+            DEFAULT_APPROVAL_TIMEOUT_SEC,
+        )
+        return DEFAULT_APPROVAL_TIMEOUT_SEC
+    return parsed
 
 
 def _page(approval_id, tool_name, tool_input, require_webauthn):

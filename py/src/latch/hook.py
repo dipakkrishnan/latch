@@ -3,7 +3,7 @@ import asyncio, json, os, subprocess, sys
 from .policy import load_policy, evaluate
 from .audit import append
 from .approval import start_approval_flow
-from .logging_utils import env_flag, init_logger
+from .logging_utils import env_flag, init_logger, debug_enabled
 
 
 def _detect_client():
@@ -52,7 +52,7 @@ def _ancestry(depth):
 
 _CLIENT = _detect_client()
 _AGENT_ID = os.environ.get("AGENT_2FA_AGENT_ID") or (f"{_CLIENT}-adhoc" if _CLIENT != "unknown" else "unknown")
-_DEBUG = env_flag("LATCH_HOOK_DEBUG")
+_DEBUG = debug_enabled(env_flag("LATCH_HOOK_DEBUG"))
 _LOGGER = init_logger("latch.hook", debug=_DEBUG)
 
 
@@ -87,9 +87,13 @@ async def _main(raw):
 
         if action in ("browser", "webauthn"):
             _log(f"starting approval flow; mode={action}")
-            approved = await start_approval_flow(tool, tool_input, require_webauthn=(action == "webauthn"))
+            approved, flow_reason = await start_approval_flow(
+                tool,
+                tool_input,
+                require_webauthn=(action == "webauthn"),
+            )
             decision = "allow" if approved else "deny"
-            reason = f"{'Approved' if approved else 'Denied'} in browser ({action})"
+            reason = flow_reason
             _log(f"approval flow complete; approved={approved} decision={decision}")
             try:
                 append(tool, tool_input, action, decision, reason, action, "hook")
@@ -114,13 +118,13 @@ async def _main(raw):
         _LOGGER.error("Hook error: %s", e)
         _log(f"hook exception: {e}")
         try:
-            append("unknown", {}, "allow", "allow", f"Hook error (fail-open): {e}", "fail-open", "hook")
-            _log("fail-open audit append success")
+            append("unknown", {}, "deny", "deny", "Hook error (fail-closed)", "policy", "hook")
+            _log("fail-closed audit append success")
         except Exception:
-            _log("fail-open audit append failed")
+            _log("fail-closed audit append failed")
             pass
-        _output("allow", f"Hook error (fail-open): {e}")
-        _log("response emitted; decision=allow (fail-open)")
+        _output("deny", "Hook error (fail-closed)")
+        _log("response emitted; decision=deny (fail-closed)")
 
 
 def main():

@@ -2,6 +2,10 @@
 
 Universal gating and audit layer for AI agents. Intercepts tool calls, evaluates them against YAML policies, logs decisions, and supports WebAuthn approval flows.
 
+Security defaults:
+- Hook errors are fail-closed (tool calls are denied on hook exceptions).
+- Browser/WebAuthn approval requests time out and deny by default.
+
 ## Quick Start
 
 ```bash
@@ -57,6 +61,8 @@ Actions: `allow`, `deny`, `ask`, `browser` (browser-based approval), `webauthn` 
 | `AGENT_2FA_DIR` | `~/.agent-2fa` | Config directory path |
 | `AGENT_2FA_CLIENT` | auto-detected | Override client detection |
 | `LATCH_HOOK_DEBUG` | `false` | Enable debug logging for hook mode |
+| `LATCH_DEBUG` | `false` | Enable debug logging for all Python latch services |
+| `LATCH_APPROVAL_TIMEOUT_SEC` | `120` | Approval flow timeout in seconds; timeout denies request |
 
 ## CLI Commands
 
