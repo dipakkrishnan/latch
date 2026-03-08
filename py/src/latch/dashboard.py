@@ -8,10 +8,10 @@ from webauthn.helpers.structs import (
 import yaml
 
 from . import credentials, audit
-from .config import CONFIG_DIR
+from .config import CONFIG_DIR, LATCH_RP_ID
 from .policy import load_policy, _PATH as _POLICY_PATH
 
-RP_ID = "localhost"
+RP_ID = LATCH_RP_ID
 RP_NAME = "agent-2fa"
 _VALID_ACTIONS = {"allow", "ask", "deny", "browser", "webauthn"}
 

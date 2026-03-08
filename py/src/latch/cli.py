@@ -18,8 +18,17 @@ def _cmd_hook(args):
 
 
 def _cmd_serve(args):
-    if args.port:
-        os.environ["LATCH_APPROVAL_PORT"] = str(args.port)
+    approval_port = args.approval_port if args.approval_port is not None else args.port
+    if approval_port:
+        os.environ["LATCH_APPROVAL_PORT"] = str(approval_port)
+    if args.transport:
+        os.environ["LATCH_MCP_TRANSPORT"] = args.transport
+    if args.mcp_host:
+        os.environ["LATCH_MCP_HOST"] = args.mcp_host
+    if args.mcp_port is not None:
+        os.environ["LATCH_MCP_PORT"] = str(args.mcp_port)
+    if args.mcp_path:
+        os.environ["LATCH_MCP_PATH"] = args.mcp_path
     from .serve import main
 
     main()
@@ -90,7 +99,17 @@ def main():
     p_hook.set_defaults(func=_cmd_hook)
 
     p_serve = sub.add_parser("serve", help="Run as an MCP proxy server")
-    p_serve.add_argument("--port", type=int, default=0, help="Approval server port (default: random)")
+    p_serve.add_argument("--port", type=int, default=0, help="Approval server port (deprecated; use --approval-port)")
+    p_serve.add_argument("--approval-port", type=int, default=None, help="Approval server port (default: random)")
+    p_serve.add_argument(
+        "--transport",
+        choices=["stdio", "http", "streamable-http", "sse"],
+        default=None,
+        help="MCP transport (default: stdio)",
+    )
+    p_serve.add_argument("--mcp-host", default=None, help="MCP HTTP bind host (for non-stdio transports)")
+    p_serve.add_argument("--mcp-port", type=int, default=None, help="MCP HTTP bind port (for non-stdio transports)")
+    p_serve.add_argument("--mcp-path", default=None, help="MCP HTTP path (default: /mcp for streamable-http/http)")
     p_serve.set_defaults(func=_cmd_serve)
 
     p_dashboard = sub.add_parser("dashboard", help="Launch the web dashboard")

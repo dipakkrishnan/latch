@@ -5,6 +5,7 @@ import sys
 
 _process: asyncio.subprocess.Process | None = None
 _tunnel_url: str | None = None
+_drain_task: asyncio.Task | None = None
 
 
 async def start_tunnel(local_port: int) -> str | None:
@@ -53,9 +54,10 @@ async def start_tunnel(local_port: int) -> str | None:
         return None
 
     if url:
+        global _drain_task
         sys.stderr.write(f"Tunnel active: {url}\n")
         # Continue draining stderr in background so the process doesn't block
-        asyncio.create_task(_drain_stderr())
+        _drain_task = asyncio.create_task(_drain_stderr())
     return url
 
 
@@ -74,7 +76,14 @@ async def _drain_stderr():
 
 async def stop_tunnel():
     """Kill the cloudflared subprocess."""
-    global _process, _tunnel_url
+    global _process, _tunnel_url, _drain_task
+    if _drain_task:
+        _drain_task.cancel()
+        try:
+            await _drain_task
+        except (asyncio.CancelledError, Exception):
+            pass
+        _drain_task = None
     if _process:
         try:
             _process.terminate()

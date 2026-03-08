@@ -4,15 +4,20 @@ services:
     volumes:
       - latch-data:/data
     ports:
+      - "8100:8100"
       - "8200:8200"
     environment:
       - LATCH_APPROVAL_PORT=8200
+      - LATCH_MCP_TRANSPORT=streamable-http
+      - LATCH_MCP_HOST=0.0.0.0
+      - LATCH_MCP_PORT=8100
+      - LATCH_MCP_PATH=/mcp
 
   # Example: OpenClaw connecting to latch as a sidecar
   # openclaw:
   #   image: openclaw:latest
   #   environment:
-  #     - LATCH_URL=http://latch:8200
+  #     - LATCH_URL=http://latch:8100/mcp
   #   depends_on:
   #     - latch
 

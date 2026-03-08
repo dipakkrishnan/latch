@@ -5,6 +5,9 @@ import secrets
 import sys
 import time
 import webbrowser
+from datetime import datetime, timezone
+from urllib.parse import urlparse
+
 from aiohttp import web
 from webauthn import (
     generate_authentication_options,
@@ -22,8 +25,10 @@ from webauthn.helpers.structs import (
 
 from . import credentials
 from .config import LATCH_APPROVAL_PORT, LATCH_RP_ID, LATCH_ORIGIN
+from .tunnel import get_tunnel_url
 
 SESSION_TTL = 300  # 5 minutes
+MAX_SESSIONS = 100
 
 
 def _b64url(b: bytes) -> str:
@@ -60,31 +65,43 @@ class ApprovalServer:
     def __init__(self):
         self._sessions: dict[str, dict] = {}
         self._enroll_challenge: bytes | None = None
+        self._enroll_complete: asyncio.Event | None = None
         self._runner: web.AppRunner | None = None
         self._port: int | None = None
-        self._tunnel_url: str | None = None
-        self._rp_id: str = LATCH_RP_ID
-        self._origin: str = LATCH_ORIGIN
         self._cleanup_task: asyncio.Task | None = None
 
     @property
     def port(self) -> int | None:
         return self._port
 
-    def set_tunnel_url(self, url: str | None):
-        self._tunnel_url = url
-        if url:
-            # Extract domain from https://xxx.trycloudflare.com
-            from urllib.parse import urlparse
-            parsed = urlparse(url)
-            if not LATCH_RP_ID or LATCH_RP_ID == "localhost":
-                self._rp_id = parsed.hostname or LATCH_RP_ID
-            if not LATCH_ORIGIN:
-                self._origin = f"https://{parsed.hostname}"
+    @property
+    def has_tunnel(self) -> bool:
+        return get_tunnel_url() is not None
+
+    @property
+    def _rp_id(self) -> str:
+        if LATCH_RP_ID and LATCH_RP_ID != "localhost":
+            return LATCH_RP_ID
+        tunnel_url = get_tunnel_url()
+        if tunnel_url:
+            parsed = urlparse(tunnel_url)
+            return parsed.hostname or "localhost"
+        return "localhost"
+
+    @property
+    def _origin(self) -> str:
+        if LATCH_ORIGIN:
+            return LATCH_ORIGIN
+        tunnel_url = get_tunnel_url()
+        if tunnel_url:
+            parsed = urlparse(tunnel_url)
+            return f"https://{parsed.hostname}"
+        return ""
 
     def _base_url(self) -> str:
-        if self._tunnel_url:
-            return self._tunnel_url
+        tunnel_url = get_tunnel_url()
+        if tunnel_url:
+            return tunnel_url
         host = "localhost" if self._rp_id == "localhost" else self._rp_id
         return f"http://{host}:{self._port}"
 
@@ -127,6 +144,11 @@ class ApprovalServer:
 
     def create_request(self, tool_name: str, tool_input: dict, require_webauthn: bool = False) -> tuple[str, str]:
         """Register a pending approval session. Returns (approval_id, url)."""
+        # Evict oldest sessions if at capacity
+        while len(self._sessions) >= MAX_SESSIONS:
+            oldest_key = min(self._sessions, key=lambda k: self._sessions[k]["created_at"])
+            session = self._sessions.pop(oldest_key)
+            session["event"].set()
         approval_id = secrets.token_urlsafe(32)
         self._sessions[approval_id] = {
             "tool": tool_name,
@@ -297,10 +319,12 @@ class ApprovalServer:
                 "publicKey": base64.b64encode(verification.credential_public_key).decode(),
                 "counter": verification.sign_count,
                 "transports": body.get("response", {}).get("transports"),
-                "createdAt": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
+                "createdAt": datetime.now(timezone.utc).isoformat(),
             })
             sys.stderr.write("Passkey enrolled successfully!\n")
             self._enroll_challenge = None
+            if self._enroll_complete:
+                self._enroll_complete.set()
             return web.json_response({"ok": True})
         except Exception as e:
             return web.json_response({"error": str(e)}, status=400)
@@ -327,7 +351,7 @@ async def start_approval_flow(tool_name: str, tool_input: dict, require_webauthn
     server = await get_approval_server()
     approval_id, url = server.create_request(tool_name, tool_input, require_webauthn)
     sys.stderr.write(f"Approval URL: {url}\n")
-    if not server._tunnel_url:
+    if not server.has_tunnel:
         webbrowser.open(url)
     return await server.wait_for_decision(approval_id)
 

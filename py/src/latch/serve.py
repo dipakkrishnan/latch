@@ -2,11 +2,17 @@ import asyncio, sys
 import yaml
 from fastmcp import FastMCP, Client
 
-from .config import CONFIG_DIR
+from .config import (
+    CONFIG_DIR,
+    LATCH_MCP_HOST,
+    LATCH_MCP_PATH,
+    LATCH_MCP_PORT,
+    LATCH_MCP_TRANSPORT,
+)
 from .policy import load_policy, evaluate
 from .audit import append
 from .approval import ApprovalServer
-from .tunnel import start_tunnel, stop_tunnel
+from .tunnel import start_tunnel, stop_tunnel, get_tunnel_url
 
 
 def _load_servers():
@@ -27,14 +33,11 @@ def _add(mcp, alias, client, tool, approval_server):
             approval_id, url = approval_server.create_request(qname, dict(kw), require_webauthn=require_webauthn)
             sys.stderr.write(f"Approval URL: {url}\n")
 
-            # Return URL to agent so it can relay to user
-            prompt_text = f"Approval required for tool \"{qname}\". Open to approve: {url}"
-
             # Start waiting for decision in background, but first notify agent
             decision_task = asyncio.create_task(approval_server.wait_for_decision(approval_id))
 
             # If no tunnel, also try opening browser locally
-            if not approval_server._tunnel_url:
+            if not approval_server.has_tunnel:
                 import webbrowser
                 webbrowser.open(url)
 
@@ -66,7 +69,6 @@ async def _run():
 
     # Start Cloudflare tunnel
     tunnel_url = await start_tunnel(approval_server.port)
-    approval_server.set_tunnel_url(tunnel_url)
 
     for s in _load_servers():
         c = Client({"command": s["command"], "args": s.get("args", []), "env": s.get("env") or {}})
@@ -77,11 +79,28 @@ async def _run():
         for tool in await client.list_tools():
             _add(mcp, alias, client, tool, approval_server)
 
+    transport = (LATCH_MCP_TRANSPORT or "stdio").strip().lower()
     print(f"Latch proxy: {len(clients)} server(s)", file=sys.stderr)
-    if tunnel_url:
-        print(f"Tunnel: {tunnel_url}", file=sys.stderr)
+    print(f"MCP transport: {transport}", file=sys.stderr)
+    if transport != "stdio":
+        endpoint = f"http://{LATCH_MCP_HOST}:{LATCH_MCP_PORT}{LATCH_MCP_PATH}"
+        print(f"MCP endpoint: {endpoint}", file=sys.stderr)
+    if get_tunnel_url():
+        print(f"Approval tunnel: {get_tunnel_url()}", file=sys.stderr)
     try:
-        await mcp.run_async(transport="stdio")
+        if transport == "stdio":
+            await mcp.run_async(transport="stdio")
+        elif transport in {"http", "streamable-http", "sse"}:
+            run_kwargs = {
+                "transport": transport,
+                "host": LATCH_MCP_HOST,
+                "port": LATCH_MCP_PORT,
+            }
+            if transport in {"http", "streamable-http"}:
+                run_kwargs["path"] = LATCH_MCP_PATH
+            await mcp.run_async(**run_kwargs)
+        else:
+            raise ValueError(f"Unsupported MCP transport: {transport}")
     finally:
         for c in clients.values():
             await c.__aexit__(None, None, None)

@@ -2,7 +2,7 @@ import asyncio, json, os, subprocess, sys
 
 from .policy import load_policy, evaluate
 from .audit import append
-from .approval import get_approval_server, start_approval_flow
+from .approval import get_approval_server
 from .tunnel import start_tunnel, get_tunnel_url
 from .logging_utils import env_flag, init_logger
 
@@ -91,16 +91,14 @@ async def _main(raw):
             server = await get_approval_server()
 
             # Start tunnel if not already active
-            tunnel_url = get_tunnel_url()
-            if not tunnel_url and server.port:
-                tunnel_url = await start_tunnel(server.port)
-                server.set_tunnel_url(tunnel_url)
+            if not get_tunnel_url() and server.port:
+                await start_tunnel(server.port)
 
             approval_id, url = server.create_request(tool, tool_input, require_webauthn=(action == "webauthn"))
             sys.stderr.write(f"Approval URL: {url}\n")
 
             # Open browser locally as fallback
-            if not tunnel_url:
+            if not server.has_tunnel:
                 import webbrowser
                 webbrowser.open(url)
 
@@ -135,7 +133,6 @@ async def _main(raw):
             _log("fail-open audit append success")
         except Exception:
             _log("fail-open audit append failed")
-            pass
         _output("allow", f"Hook error (fail-open): {e}")
         _log("response emitted; decision=allow (fail-open)")
 
