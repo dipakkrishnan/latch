@@ -1,0 +1,6 @@
+defaultAction: approve
+rules:
+  - match: {tool: '(ls|pwd|whoami|cat|head|tail|echo|date|env)'}
+    action: allow
+  - match: {tool: '(rm|chmod|chown|kill|shutdown|reboot)'}
+    action: deny

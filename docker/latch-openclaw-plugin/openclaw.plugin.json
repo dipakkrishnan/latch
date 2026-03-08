@@ -1,0 +1,36 @@
+{
+  "id": "latch-approval-gate",
+  "name": "Latch Approval Gate",
+  "description": "Routes agent tool calls through Latch /approve before execution.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "approveUrl": {
+        "type": "string"
+      },
+      "timeoutMs": {
+        "type": "integer",
+        "minimum": 1000,
+        "maximum": 120000
+      },
+      "failClosed": {
+        "type": "boolean"
+      }
+    }
+  },
+  "uiHints": {
+    "approveUrl": {
+      "label": "Latch Approve URL",
+      "help": "HTTP endpoint for latch approval checks."
+    },
+    "timeoutMs": {
+      "label": "Approval Timeout (ms)",
+      "help": "Maximum wait time for each approval request."
+    },
+    "failClosed": {
+      "label": "Fail Closed",
+      "help": "Block tool calls when latch is unreachable or returns invalid responses."
+    }
+  }
+}
