@@ -14,5 +14,5 @@ RUN apt-get update && \
 ENV AGENT_2FA_DIR=/data
 EXPOSE 8200
 
-ENTRYPOINT ["latch"]
-CMD ["serve", "--port", "8200"]
+# Init config on first run, then start serving
+CMD ["sh", "-c", "latch init && latch serve --port 8200"]
