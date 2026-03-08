@@ -1,6 +1,7 @@
 import asyncio, sys
 import yaml
 from fastmcp import FastMCP, Client
+from fastmcp.client.transports import StdioTransport
 
 from .config import (
     CONFIG_DIR,
@@ -24,7 +25,8 @@ def _add(mcp, alias, client, tool, approval_server):
     qname = f"{alias}__{tool.name}"
     tool_name = tool.name
 
-    async def call(**kw):
+    async def call(input: dict | None = None):
+        kw = input if isinstance(input, dict) else {}
         policy = load_policy()
         action, reason = evaluate(qname, policy)
 
@@ -56,7 +58,11 @@ def _add(mcp, alias, client, tool, approval_server):
         return (await client.call_tool(tool_name, kw)).content
 
     call.__name__ = qname
-    mcp.tool(name=qname, description=tool.description or "")(call)
+    desc = tool.description or ""
+    if desc:
+        desc += "\n\n"
+    desc += "Proxy wrapper. Pass downstream tool args in the `input` object."
+    mcp.tool(name=qname, description=desc)(call)
 
 
 async def _run():
@@ -71,7 +77,12 @@ async def _run():
     tunnel_url = await start_tunnel(approval_server.port)
 
     for s in _load_servers():
-        c = Client({"command": s["command"], "args": s.get("args", []), "env": s.get("env") or {}})
+        transport = StdioTransport(
+            command=s["command"],
+            args=s.get("args", []),
+            env=s.get("env") or {},
+        )
+        c = Client(transport)
         await c.__aenter__()
         clients[s["alias"]] = c
 
