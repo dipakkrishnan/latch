@@ -1,133 +1,131 @@
 # latch
 
-A universal gating and audit layer for AI agents. Latch intercepts agent tool calls, evaluates them against configurable policies, and records every decision — before anything executes.
+A universal gating and audit layer for AI agents. Latch intercepts agent tool calls, evaluates them against configurable YAML policies, and records every decision — before anything executes.
 
 Works across two integration modes:
 
 | Mode | How it works | Best for |
 |---|---|---|
-| **Hook** | Pre-tool-use hook process | Claude Code, Codex, OpenClaw |
+| **Hook** | Pre-tool-use hook process (stdin/stdout) | Claude Code, Codex, OpenClaw |
 | **MCP Proxy** | stdio MCP proxy between agent and tool servers | Claude Desktop, any MCP client |
 
-Both modes share the same policy engine, WebAuthn approval flow, session cache, and audit log.
+Both modes share the same policy engine, WebAuthn approval flow, and audit log.
 
 ## What it does
 
-- **Policy enforcement** — define per-tool rules (allow, deny, ask, or require passkey) via a dashboard UI
-- **WebAuthn gating** — require biometric approval for sensitive actions; approvals are cached per-session so you're not interrupted on every call
+- **Policy enforcement** — define per-tool rules (allow, deny, ask, browser, or webauthn) via YAML
+- **WebAuthn gating** — require biometric/passkey approval for sensitive actions
 - **MCP proxy** — presents as an MCP server to the agent while proxying downstream MCP servers, intercepting `tools/call` before forwarding
-- **Audit log** — every tool call, its inputs, and the decision are recorded with agent identity
-- **Agent attribution** — auto-detects the calling agent (or set it explicitly) to tag audit entries
+- **Audit log** — every tool call, its inputs, and the decision are recorded
+- **Agent attribution** — auto-detects the calling agent (Claude Code, Codex, OpenClaw) or set it explicitly
+- **Web dashboard** — manage policies, enroll passkeys, and browse audit logs
+
+## Install
+
+```bash
+pip install latch-agent
+latch init
+```
 
 ## Quick Start
 
-1. Install deps:
-```bash
-npm install
-```
-2. Build server + dashboard UI:
-```bash
-npm run build
-```
-3. Run dashboard:
-```bash
-npm run dashboard
-```
+### Hook mode (Claude Code)
 
-Open `http://localhost:2222` to manage policies, enroll passkeys, and view the audit log.
-
-> Use `http://localhost:2222` for WebAuthn enrollment — `127.0.0.1` will not work.
-
-## Integration
-
-### Hook mode
-
-Point your agent's pre-tool-use hook at the latch entry point. For Claude Code, add to `settings.json`:
+Add latch as a pre-tool-use hook in your Claude Code `settings.json`:
 
 ```json
 {
   "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": ".*",
-        "hooks": [{ "type": "command", "command": "npx tsx /path/to/latch/src/hook.ts" }]
-      }
-    ]
+    "PreToolUse": [{ "command": "latch-hook" }]
   }
 }
 ```
 
+### Hook mode (Codex)
+
+Set up latch as a pre-tool-use hook in your Codex configuration, pointing to `latch-hook`.
+
 ### MCP proxy mode
 
-Latch acts as an MCP server (stdio) to your agent while proxying one or more downstream MCP servers. The agent sees a unified, namespaced tool list; every `tools/call` is evaluated against policy before being forwarded.
-
-```
-Agent → tools/call → Latch Proxy → Policy Engine
-  ├─ allow  → forward to downstream MCP server
-  ├─ deny   → return error to agent
-  └─ webauthn → open browser → biometric approval → forward (or deny on timeout)
-```
-
 Add a downstream server:
-```bash
-npx tsx src/index.ts add-server filesystem npx -y @modelcontextprotocol/server-filesystem /tmp
+
+Edit `~/.agent-2fa/servers.yaml`:
+
+```yaml
+servers:
+  - alias: filesystem
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
 ```
 
 Start the proxy:
-```bash
-npx tsx src/index.ts serve
-```
-
-Then configure your agent to use latch as its MCP server.
-
-## Agent Attribution
-
-Set `AGENT_2FA_AGENT_ID` to tag audit entries with a specific agent identity:
 
 ```bash
-AGENT_2FA_AGENT_ID=agent-1 npm run dashboard
+latch serve
 ```
 
-Latch also auto-detects the client from environment signals (Claude Code, Codex, OpenClaw).
+Then configure your agent to use `latch-serve` as its MCP server. Tool names are namespaced as `alias__toolName`.
 
-## Dashboard
+```
+Agent → tools/call → Latch Proxy → Policy Engine
+  ├─ allow    → forward to downstream MCP server
+  ├─ deny     → return error to agent
+  └─ webauthn → open browser → passkey approval → forward (or deny)
+```
 
-| Section | What you can do |
-|---|---|
-| `#/policy` | Add, edit, reorder, and delete per-tool rules |
-| `#/credentials` | Enroll and manage WebAuthn passkeys |
-| `#/audit` | Browse all decisions with tool-name and outcome filters |
+### OpenClaw plugin
+
+```bash
+openclaw plugins install openclaw-latch
+```
+
+The plugin automatically installs `latch-agent`, runs `latch init`, and registers `latch-serve` as an MCP server.
 
 ## Policy format
 
-Rules are matched top-to-bottom. Supported actions: `allow`, `deny`, `ask`, `webauthn`.
+Edit `~/.agent-2fa/policy.yaml`. Rules are matched top-to-bottom:
 
 ```yaml
 defaultAction: allow
 rules:
-  - match:
-      tool: "*__send_*"
-    action: webauthn
-    session:
-      duration: 10
-      scope: tool
-  - match:
-      tool: "*__delete_*"
-    action: webauthn
-  - match:
-      tool: "Bash"
+  - match: { tool: Bash }
     action: ask
+  - match: { tool: 'Edit|Write|NotebookEdit' }
+    action: ask
+  - match: { tool: 'Read|Glob|Grep' }
+    action: allow
+  - match: { tool: '*__send_*' }
+    action: webauthn
+  - match: { tool: '*__delete_*' }
+    action: webauthn
 ```
 
-Tool names in MCP proxy mode are namespaced as `serverName__toolName`.
+Supported actions: `allow`, `deny`, `ask`, `browser` (browser-based approval), `webauthn` (passkey required).
 
-## Commands
+## CLI
+
+```
+latch init       # Initialize config directory
+latch hook       # Run as stdin/stdout hook
+latch serve      # Run as MCP proxy server
+latch dashboard  # Launch web dashboard
+latch enroll     # Enroll a WebAuthn passkey
+latch status     # Show config summary
+```
+
+## Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AGENT_2FA_DIR` | `~/.agent-2fa` | Config directory path |
+| `AGENT_2FA_CLIENT` | auto-detected | Override client detection |
+| `AGENT_2FA_AGENT_ID` | auto-generated | Set agent identity for audit entries |
+| `LATCH_HOOK_DEBUG` | `false` | Enable debug logging for hook mode |
+
+## Development
 
 ```bash
-npm run dashboard          # start dashboard and open browser
-npm run dashboard:no-open  # start dashboard without opening browser
-npm run dev:ui             # run Vite UI dev server
-npm run test               # run full test suite
-npm run smoke              # build + dashboard smoke tests
-npm run smoke:e2e          # API + hook integration checks
+cd py
+uv sync
+uv run pytest
 ```
