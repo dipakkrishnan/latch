@@ -1,4 +1,4 @@
-import { execSync, execFileSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 
 function isOnPath(cmd) {
   try {
@@ -16,23 +16,21 @@ function installLatch() {
 
   console.log("[openclaw-latch] latch-serve not found on PATH. Installing latch-agent...");
 
-  if (isOnPath("pipx")) {
-    try {
-      execSync("pipx install latch-agent", { stdio: "inherit" });
-      return true;
-    } catch (err) {
-      console.error("[openclaw-latch] pipx install failed:", err.message);
-      return false;
-    }
+  if (!isOnPath("pipx")) {
+    console.error(
+      "[openclaw-latch] pipx is required for automatic installation.",
+    );
+    console.error(
+      "[openclaw-latch] Install pipx, then run: pipx install latch-agent && latch init",
+    );
+    return false;
   }
 
   try {
-    execSync("pip install latch-agent", { stdio: "inherit" });
+    execFileSync("pipx", ["install", "latch-agent"], { stdio: "inherit" });
     return true;
   } catch (err) {
-    console.error(
-      "[openclaw-latch] Could not install latch-agent automatically.",
-    );
+    console.error("[openclaw-latch] pipx install failed:", err.message);
     console.error(
       "[openclaw-latch] Please run: pipx install latch-agent && latch init",
     );
@@ -42,7 +40,7 @@ function installLatch() {
 
 function initLatch() {
   try {
-    execSync("latch init", { stdio: "inherit" });
+    execFileSync("latch", ["init"], { stdio: "inherit" });
   } catch {
     // init is idempotent, ignore errors
   }
