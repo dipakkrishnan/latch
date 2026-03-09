@@ -15,16 +15,19 @@ rules:
     action: allow
 """
 _cache = None
+_cache_mtime = 0.0
 
 
 def load_policy(force=False):
-    global _cache
-    if _cache and not force:
-        return _cache
+    global _cache, _cache_mtime
     if not _PATH.exists():
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         _PATH.write_text(DEFAULT_POLICY)
+    mtime = _PATH.stat().st_mtime
+    if _cache and not force and mtime == _cache_mtime:
+        return _cache
     _cache = yaml.safe_load(_PATH.read_text())
+    _cache_mtime = mtime
     return _cache
 
 

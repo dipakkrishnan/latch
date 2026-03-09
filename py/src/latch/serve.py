@@ -1,4 +1,4 @@
-import asyncio, sys
+import asyncio, json, sys
 import yaml
 from fastmcp import FastMCP, Client
 from fastmcp.client.transports import StdioTransport
@@ -21,6 +21,49 @@ def _load_servers():
     return (yaml.safe_load(p.read_text()) or {}).get("servers", []) if p.exists() else []
 
 
+def _add_approval_tools(mcp, approval_server):
+    """Register the check_approval and pending_approvals tools."""
+
+    async def check_approval(approval_id: str) -> list:
+        """Check the status of a pending approval. Returns the result if decided, or 'pending' if still waiting.
+
+        Call this after a tool returns an approval URL. Pass the approval_id from that response.
+        If approved, the original tool call is automatically executed and the result returned."""
+        session = approval_server._sessions.get(approval_id)
+        if not session:
+            return [{"type": "text", "text": f"Approval {approval_id} not found (expired or already resolved)."}]
+
+        if not session["event"].is_set():
+            return [{"type": "text", "text": "pending"}]
+
+        approved = session["approved"]
+        tool_name = session["tool"]
+        tool_args = session["args"]
+        approval_server._sessions.pop(approval_id, None)
+
+        if not approved:
+            append(tool_name, tool_args, "browser", "deny", "Denied by user", "browser", "mcp")
+            return [{"type": "text", "text": f"Denied by user."}]
+
+        # Approved — execute the original tool call
+        append(tool_name, tool_args, "browser", "allow", "Approved by user", "browser", "mcp")
+
+        # Find the downstream client and call the real tool
+        alias, _, downstream_tool = tool_name.partition("__")
+        client = approval_server._clients.get(alias)
+        if not client:
+            return [{"type": "text", "text": f"Approved, but downstream server '{alias}' not found."}]
+
+        result = await client.call_tool(downstream_tool, tool_args)
+        return result.content
+
+    check_approval.__name__ = "latch__check_approval"
+    mcp.tool(
+        name="latch__check_approval",
+        description="Check status of a pending tool approval. Pass the approval_id returned when a tool requires approval. Returns 'pending', the tool result (if approved), or a denial message.",
+    )(check_approval)
+
+
 def _add(mcp, alias, client, tool, approval_server):
     qname = f"{alias}__{tool.name}"
     tool_name = tool.name
@@ -33,22 +76,21 @@ def _add(mcp, alias, client, tool, approval_server):
         if action in ("browser", "webauthn", "ask"):
             require_webauthn = action == "webauthn"
             approval_id, url = approval_server.create_request(qname, dict(kw), require_webauthn=require_webauthn)
-            sys.stderr.write(f"Approval URL: {url}\n")
-
-            # Start waiting for decision in background, but first notify agent
-            decision_task = asyncio.create_task(approval_server.wait_for_decision(approval_id))
 
             # If no tunnel, also try opening browser locally
             if not approval_server.has_tunnel:
                 import webbrowser
                 webbrowser.open(url)
 
-            approved = await decision_task
-            decision = "allow" if approved else "deny"
-            reason_text = f"{'Approved' if approved else 'Denied'} via approval flow ({action})"
-            append(qname, kw, action, decision, reason_text, action, "mcp")
-            if not approved:
-                return [{"type": "text", "text": f"Denied by user ({action})"}]
+            # Return the URL immediately — agent shows it to user, then polls check_approval
+            return [{"type": "text", "text": json.dumps({
+                "status": "approval_required",
+                "approval_id": approval_id,
+                "url": url,
+                "tool": qname,
+                "message": f"Approval required for {qname}. Open to approve: {url}",
+                "next": f'Call latch__check_approval with approval_id="{approval_id}" to check the result.',
+            })}]
         elif action == "deny":
             append(qname, kw, action, "deny", reason, "policy", "mcp")
             return [{"type": "text", "text": f"Blocked by policy: {reason}"}]
@@ -86,9 +128,15 @@ async def _run():
         await c.__aenter__()
         clients[s["alias"]] = c
 
+    # Store clients on the approval server so check_approval can call downstream tools
+    approval_server._clients = clients
+
     for alias, client in clients.items():
         for tool in await client.list_tools():
             _add(mcp, alias, client, tool, approval_server)
+
+    # Register approval check tool
+    _add_approval_tools(mcp, approval_server)
 
     transport = (LATCH_MCP_TRANSPORT or "stdio").strip().lower()
     print(f"Latch proxy: {len(clients)} server(s)", file=sys.stderr)
