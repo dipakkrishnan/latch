@@ -32,6 +32,14 @@ def preset_names() -> list[str]:
     return list(PRESETS.keys())
 
 
+def preset_choice_labels() -> dict[str, str]:
+    return {
+        "Permissive": "Permissive (allow most, ask Bash)",
+        "Balanced": "Balanced (allow reads, ask writes/shell)",
+        "Strict": "Strict (read-only allowlist, passkey for actions)",
+    }
+
+
 def get_preset(name: str) -> dict:
     if name not in PRESETS:
         raise KeyError(f"Unknown preset: {name}")

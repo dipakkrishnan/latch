@@ -15,7 +15,7 @@ import yaml
 from . import ui
 from .openclaw import apply_mcporter_in_container, write_mcporter_config
 from .persist import write_env_file
-from .presets import get_preset, preset_names, rules_rows, to_yaml
+from .presets import get_preset, preset_choice_labels, preset_names, rules_rows, to_yaml
 
 
 @dataclass
@@ -89,12 +89,16 @@ def step_config_dir(state, ctx: SetupContext) -> None:
 def step_policy(state, ctx: SetupContext) -> None:
     ui.header(3, ctx.total_steps, "Policy Preset")
     default = "Balanced"
-    name = ui.ask_select(
+    labels = preset_choice_labels()
+    choices = [labels[n] for n in preset_names()]
+    selected_label = ui.ask_select(
         "Choose policy preset",
-        choices=preset_names(),
-        default=default,
+        choices=choices,
+        default=labels[default],
         interactive=ctx.interactive,
     )
+    reverse = {v: k for k, v in labels.items()}
+    name = reverse[selected_label]
     policy = get_preset(name)
     ui.show_rules_table(rules_rows(policy), title=f"{name} Rules")
 
