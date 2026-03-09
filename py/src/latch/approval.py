@@ -143,7 +143,13 @@ class ApprovalServer:
             await self._runner.cleanup()
 
     def create_request(self, tool_name: str, tool_input: dict, require_webauthn: bool = False) -> tuple[str, str]:
-        """Register a pending approval session. Returns (approval_id, url)."""
+        """Register a pending approval session. Returns (approval_id, url).
+
+        When a tunnel is active, require_webauthn is automatically set to True
+        so remote approvals always require biometric verification.
+        """
+        if self.has_tunnel:
+            require_webauthn = True
         # Evict oldest sessions if at capacity
         while len(self._sessions) >= MAX_SESSIONS:
             oldest_key = min(self._sessions, key=lambda k: self._sessions[k]["created_at"])
