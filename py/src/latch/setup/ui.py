@@ -59,8 +59,13 @@ def ask_text(prompt: str, default: str | None = None, interactive: bool = True) 
         return default or ""
     import questionary
 
-    value = questionary.text(prompt, default=default).ask()
-    return value if value is not None else (default or "")
+    try:
+        value = questionary.text(prompt, default=default).ask()
+    except (KeyboardInterrupt, EOFError):
+        raise KeyboardInterrupt
+    if value is None:
+        raise KeyboardInterrupt
+    return value
 
 
 def ask_confirm(
@@ -73,8 +78,13 @@ def ask_confirm(
         return True if assume_yes else default
     import questionary
 
-    value = questionary.confirm(prompt, default=default).ask()
-    return default if value is None else bool(value)
+    try:
+        value = questionary.confirm(prompt, default=default).ask()
+    except (KeyboardInterrupt, EOFError):
+        raise KeyboardInterrupt
+    if value is None:
+        raise KeyboardInterrupt
+    return bool(value)
 
 
 def ask_select(
@@ -91,9 +101,12 @@ def ask_select(
         return choices[0]
     import questionary
 
-    value = questionary.select(prompt, choices=choices, default=default).ask()
+    try:
+        value = questionary.select(prompt, choices=choices, default=default).ask()
+    except (KeyboardInterrupt, EOFError):
+        raise KeyboardInterrupt
     if value is None:
-        return default if default in choices else choices[0]
+        raise KeyboardInterrupt
     return value
 
 
