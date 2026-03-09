@@ -3,6 +3,18 @@ import os
 import sys
 
 
+def _cmd_setup(args):
+    from pathlib import Path
+    from .setup import run_setup
+
+    config_dir = Path(args.dir) if args.dir else None
+    run_setup(
+        config_dir=config_dir,
+        interactive=not args.non_interactive,
+        assume_yes=args.yes,
+    )
+
+
 def _cmd_init(args):
     from pathlib import Path
     from .init import init
@@ -121,6 +133,12 @@ def main():
 
     p_status = sub.add_parser("status", help="Show config summary")
     p_status.set_defaults(func=_cmd_status)
+
+    p_setup = sub.add_parser("setup", help="Interactive first-time setup wizard")
+    p_setup.add_argument("--dir", help="Config directory (default: ~/.agent-2fa)")
+    p_setup.add_argument("--non-interactive", action="store_true", help="Use defaults and skip interactive prompts")
+    p_setup.add_argument("--yes", action="store_true", help="Accept recommended defaults where possible")
+    p_setup.set_defaults(func=_cmd_setup)
 
     args = parser.parse_args()
     if not args.command:
