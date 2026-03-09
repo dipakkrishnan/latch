@@ -30,6 +30,9 @@ dependencies = [
     "fastmcp>=3.0",
     "aiohttp>=3.9",
     "webauthn>=2.0",
+    "rich>=13.0",
+    "questionary>=2.0",
+    "qrcode>=7.0",
 ]
 
 [project.optional-dependencies]
