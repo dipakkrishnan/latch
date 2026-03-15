@@ -28,7 +28,8 @@ async def start_tunnel(local_port: int) -> str | None:
         stderr=asyncio.subprocess.PIPE,
     )
 
-    url_pattern = re.compile(r"(https://[a-zA-Z0-9\-]+\.trycloudflare\.com)")
+    # Match tunnel URLs but exclude the API endpoint itself
+    url_pattern = re.compile(r"(https://(?!api\.)[a-zA-Z0-9\-]+\.trycloudflare\.com)")
 
     # cloudflared prints the URL to stderr
     async def _read_until_url():
