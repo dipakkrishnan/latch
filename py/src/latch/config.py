@@ -18,3 +18,6 @@ OPENCLAW_HOOKS_TOKEN = os.environ.get("OPENCLAW_HOOKS_TOKEN", "")
 OPENCLAW_SESSION_KEY = os.environ.get("OPENCLAW_SESSION_KEY", "")  # e.g. agent:main:whatsapp:direct:number
 OPENCLAW_CHANNEL = os.environ.get("OPENCLAW_CHANNEL", "")  # e.g. whatsapp
 OPENCLAW_CHANNEL_TO = os.environ.get("OPENCLAW_CHANNEL_TO", "") 
+OPENCLAW_SESSION_KEY = os.environ.get("OPENCLAW_SESSION_KEY", "")  # e.g. agent:main:whatsapp:direct:+14124679849
+OPENCLAW_CHANNEL = os.environ.get("OPENCLAW_CHANNEL", "")  # e.g. whatsapp
+OPENCLAW_CHANNEL_TO = os.environ.get("OPENCLAW_CHANNEL_TO", "")  # e.g. +14124679849
