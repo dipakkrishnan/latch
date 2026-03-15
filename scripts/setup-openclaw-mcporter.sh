@@ -26,7 +26,7 @@ if [ -f "${CONFIG_FILE}" ]; then
     const fs = require('fs');
     const cfg = JSON.parse(fs.readFileSync('${CONFIG_FILE}', 'utf8'));
     cfg.mcpServers = cfg.mcpServers || {};
-    cfg.mcpServers.latch = { baseUrl: '${LATCH_URL}', allowHttp: true };
+    cfg.mcpServers.latch = { url: '${LATCH_URL}', allowHttp: true };
     fs.writeFileSync('${CONFIG_FILE}', JSON.stringify(cfg, null, 2));
   "
   echo "[latch] Updated ${CONFIG_FILE} with latch server."
@@ -35,7 +35,7 @@ else
 {
   "mcpServers": {
     "latch": {
-      "baseUrl": "${LATCH_URL}",
+      "url": "${LATCH_URL}",
       "allowHttp": true
     }
   }

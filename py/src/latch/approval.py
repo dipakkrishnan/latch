@@ -24,7 +24,16 @@ from webauthn.helpers.structs import (
 )
 
 from . import credentials
-from .config import LATCH_APPROVAL_PORT, LATCH_RP_ID, LATCH_ORIGIN
+from .config import (
+    LATCH_APPROVAL_PORT,
+    LATCH_RP_ID,
+    LATCH_ORIGIN,
+    OPENCLAW_HOOKS_URL,
+    OPENCLAW_HOOKS_TOKEN,
+    OPENCLAW_SESSION_KEY,
+    OPENCLAW_CHANNEL,
+    OPENCLAW_CHANNEL_TO,
+)
 from .tunnel import get_tunnel_url
 
 SESSION_TTL = 300  # 5 minutes
@@ -270,7 +279,98 @@ class ApprovalServer:
 
         session["approved"] = decision == "approve"
         session["event"].set()
+
+        # Execute downstream tool and push result via webhook
+        asyncio.create_task(self._handle_decision(approval_id, session))
+
         return web.json_response({"ok": True})
+
+    async def _handle_decision(self, approval_id: str, session: dict):
+        """After user decides, execute the tool (if approved) and push result to OpenClaw."""
+        from .audit import append
+
+        tool_name = session["tool"]
+        tool_args = session["args"]
+        approved = session["approved"]
+
+        if not approved:
+            append(tool_name, tool_args, "browser", "deny", "Denied by user", "browser", "mcp")
+            await self._push_to_openclaw(f"Tool call `{tool_name}` was **denied**.")
+            return
+
+        append(tool_name, tool_args, "browser", "allow", "Approved by user", "browser", "mcp")
+
+        # Execute the downstream tool
+        alias, _, downstream_tool = tool_name.partition("__")
+        client = self._clients.get(alias)
+        if not client:
+            await self._push_to_openclaw(f"Tool `{tool_name}` approved, but downstream server '{alias}' not found.")
+            return
+
+        try:
+            result = await client.call_tool(downstream_tool, tool_args)
+            text_parts = []
+            for block in result.content:
+                if hasattr(block, "text"):
+                    text_parts.append(block.text)
+                elif isinstance(block, dict) and "text" in block:
+                    text_parts.append(block["text"])
+            result_text = "\n".join(text_parts) if text_parts else "(no output)"
+            await self._push_to_openclaw(
+                f"Tool `{tool_name}` was **approved** and executed.\n\nResult:\n```\n{result_text}\n```"
+            )
+        except Exception as e:
+            await self._push_to_openclaw(f"Tool `{tool_name}` approved but execution failed: {e}")
+
+    async def _push_to_openclaw(self, message: str):
+        """Push a message into the OpenClaw session via the hooks/agent endpoint."""
+        if not OPENCLAW_HOOKS_URL or not OPENCLAW_HOOKS_TOKEN:
+            sys.stderr.write(f"[latch] Webhook not configured, skipping push: {message[:100]}\n")
+            return
+
+        import aiohttp
+
+        # /hooks/agent runs an isolated agent turn; it does not directly emit payload.message.
+        # Ask the agent to produce a concise user-facing summary of the outcome.
+        agent_prompt = (
+            "Summarize the following latch approval outcome for the user in 1-2 short sentences. "
+            "Include the decision (approved/denied), the tool name, and execution status if applicable. "
+            "Keep the response concise and user-facing.\n"
+            f"<latch_result>\n{message}\n</latch_result>"
+        )
+
+        payload = {
+            "message": agent_prompt,
+            "name": "latch-approval",
+            "deliver": True,
+            "wakeMode": "now",
+        }
+        if OPENCLAW_SESSION_KEY:
+            payload["sessionKey"] = OPENCLAW_SESSION_KEY
+        if OPENCLAW_CHANNEL:
+            payload["channel"] = OPENCLAW_CHANNEL
+        if OPENCLAW_CHANNEL_TO:
+            payload["to"] = OPENCLAW_CHANNEL_TO
+
+        try:
+            async with aiohttp.ClientSession() as http:
+                async with http.post(
+                    OPENCLAW_HOOKS_URL,
+                    json=payload,
+                    headers={
+                        "Authorization": f"Bearer {OPENCLAW_HOOKS_TOKEN}",
+                        "Content-Type": "application/json",
+                    },
+                    timeout=aiohttp.ClientTimeout(total=10),
+                ) as resp:
+                    body = await resp.text()
+                    if resp.status >= 400:
+                        sys.stderr.write(f"[latch] Webhook push failed ({resp.status}): {body}\n")
+                    else:
+                        sys.stderr.write(f"[latch] Webhook push OK ({resp.status}): {body}\n")
+                    sys.stderr.write(f"[latch] Webhook payload: {json.dumps(payload)}\n")
+        except Exception as e:
+            sys.stderr.write(f"[latch] Webhook push error: {e}\n")
 
     # --- Enrollment routes ---
 

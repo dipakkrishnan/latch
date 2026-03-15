@@ -1,6 +1,8 @@
 FROM python:3.12-slim
 
-RUN pip install --no-cache-dir latch-agent==0.1.3
+ARG LATCH_AGENT_SPEC=latch-agent
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir --upgrade "${LATCH_AGENT_SPEC}"
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends curl && \

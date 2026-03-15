@@ -22,46 +22,8 @@ def _load_servers():
 
 
 def _add_approval_tools(mcp, approval_server):
-    """Register the check_approval and pending_approvals tools."""
-
-    async def check_approval(approval_id: str) -> list:
-        """Check the status of a pending approval. Returns the result if decided, or 'pending' if still waiting.
-
-        Call this after a tool returns an approval URL. Pass the approval_id from that response.
-        If approved, the original tool call is automatically executed and the result returned."""
-        session = approval_server._sessions.get(approval_id)
-        if not session:
-            return [{"type": "text", "text": f"Approval {approval_id} not found (expired or already resolved)."}]
-
-        if not session["event"].is_set():
-            return [{"type": "text", "text": "pending"}]
-
-        approved = session["approved"]
-        tool_name = session["tool"]
-        tool_args = session["args"]
-        approval_server._sessions.pop(approval_id, None)
-
-        if not approved:
-            append(tool_name, tool_args, "browser", "deny", "Denied by user", "browser", "mcp")
-            return [{"type": "text", "text": f"Denied by user."}]
-
-        # Approved — execute the original tool call
-        append(tool_name, tool_args, "browser", "allow", "Approved by user", "browser", "mcp")
-
-        # Find the downstream client and call the real tool
-        alias, _, downstream_tool = tool_name.partition("__")
-        client = approval_server._clients.get(alias)
-        if not client:
-            return [{"type": "text", "text": f"Approved, but downstream server '{alias}' not found."}]
-
-        result = await client.call_tool(downstream_tool, tool_args)
-        return result.content
-
-    check_approval.__name__ = "latch__check_approval"
-    mcp.tool(
-        name="latch__check_approval",
-        description="Check status of a pending tool approval. Pass the approval_id returned when a tool requires approval. Returns 'pending', the tool result (if approved), or a denial message.",
-    )(check_approval)
+    """Register approval-related tools (currently none — approval results are pushed via webhook)."""
+    pass
 
 
 def _add(mcp, alias, client, tool, approval_server):
@@ -82,15 +44,15 @@ def _add(mcp, alias, client, tool, approval_server):
                 import webbrowser
                 webbrowser.open(url)
 
-            # Return the URL immediately — agent shows it to user, then polls check_approval
-            return [{"type": "text", "text": json.dumps({
-                "status": "approval_required",
-                "approval_id": approval_id,
-                "url": url,
-                "tool": qname,
-                "message": f"Approval required for {qname}. Open to approve: {url}",
-                "next": f'Call latch__check_approval with approval_id="{approval_id}" to check the result.',
-            })}]
+            # Return the URL for the user. The approval result will be pushed
+            # back into the chat session via webhook when the user decides.
+            return [
+                {"type": "text", "text": (
+                    f"Approval required for {qname}. "
+                    f"Please open this link to approve or deny:\n\n{url}\n\n"
+                    f"The result will appear here automatically once you decide."
+                )},
+            ]
         elif action == "deny":
             append(qname, kw, action, "deny", reason, "policy", "mcp")
             return [{"type": "text", "text": f"Blocked by policy: {reason}"}]

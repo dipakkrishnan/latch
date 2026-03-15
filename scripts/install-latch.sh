@@ -26,8 +26,8 @@ fi
 
 if has latch; then
   echo "[latch] Installed: $(latch --version)"
-  echo "[latch] Next: latch setup"
+  echo "[latch] Next: latch init"
 else
   echo "[latch] Installed, but 'latch' is not on PATH in this shell." >&2
-  echo "[latch] Open a new shell, then run: latch setup" >&2
+  echo "[latch] Open a new shell, then run: latch init" >&2
 fi
