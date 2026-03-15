@@ -12,6 +12,8 @@ services:
       - LATCH_MCP_HOST=0.0.0.0
       - LATCH_MCP_PORT=8100
       - LATCH_MCP_PATH=/mcp
+      # Optional: redirect approval page back to chat/control UI after approve/deny
+      - LATCH_APPROVAL_REDIRECT_URL=${LATCH_APPROVAL_REDIRECT_URL:-http://localhost:18789}
       # Webhook callback to push approval results into the OpenClaw chat session
       - OPENCLAW_HOOKS_URL=${OPENCLAW_HOOKS_URL:-http://host.docker.internal:18789/hooks/agent}
       - OPENCLAW_HOOKS_TOKEN=${OPENCLAW_HOOKS_TOKEN:-latch-webhook-token-2026}

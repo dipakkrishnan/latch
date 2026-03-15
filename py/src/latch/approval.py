@@ -6,6 +6,7 @@ import sys
 import time
 import webbrowser
 from datetime import datetime, timezone
+import re
 from urllib.parse import urlparse
 
 from aiohttp import web
@@ -26,6 +27,7 @@ from webauthn.helpers.structs import (
 from . import credentials
 from .config import (
     LATCH_APPROVAL_PORT,
+    LATCH_APPROVAL_REDIRECT_URL,
     LATCH_RP_ID,
     LATCH_ORIGIN,
     OPENCLAW_HOOKS_URL,
@@ -66,6 +68,18 @@ def _normalize_credential_id(value: str | None) -> str | None:
     except Exception:
         return value
     return _b64url(decoded)
+
+
+def _is_safe_redirect_url(url: str) -> bool:
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False
+    return parsed.scheme in {"https", "http", "whatsapp"} and bool(parsed.netloc or parsed.scheme == "whatsapp")
+
+
+def _normalize_phone_digits(value: str) -> str:
+    return re.sub(r"\D+", "", value)
 
 
 class ApprovalServer:
@@ -210,10 +224,32 @@ class ApprovalServer:
         if time.time() - session["created_at"] > SESSION_TTL:
             self._sessions.pop(approval_id, None)
             return web.Response(text="Approval session expired.", status=410)
+        redirect_url = self._resolve_post_decision_redirect_url()
         return web.Response(
             content_type="text/html",
-            text=_approval_page(approval_id, session["tool"], session["args"], session["require_webauthn"]),
+            text=_approval_page(
+                approval_id,
+                session["tool"],
+                session["args"],
+                session["require_webauthn"],
+                redirect_url,
+            ),
         )
+
+    def _resolve_post_decision_redirect_url(self) -> str | None:
+        configured = (LATCH_APPROVAL_REDIRECT_URL or "").strip()
+        if configured:
+            if _is_safe_redirect_url(configured):
+                return configured
+            sys.stderr.write(f"[latch] Ignoring unsafe LATCH_APPROVAL_REDIRECT_URL: {configured}\n")
+            return None
+
+        if (OPENCLAW_CHANNEL or "").strip().lower() == "whatsapp":
+            to = (OPENCLAW_CHANNEL_TO or "").strip()
+            digits = _normalize_phone_digits(to)
+            if digits:
+                return f"https://wa.me/{digits}"
+        return None
 
     async def _get_webauthn_opts(self, req: web.Request):
         approval_id = req.match_info["id"]
@@ -464,53 +500,231 @@ async def start_approval_flow(tool_name: str, tool_input: dict, require_webauthn
 
 # --- HTML templates ---
 
-def _approval_page(approval_id, tool_name, tool_input, require_webauthn):
+def _approval_page(approval_id, tool_name, tool_input, require_webauthn, redirect_url):
     escaped = json.dumps(tool_input, indent=2).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     approve_label = "Approve with Passkey" if require_webauthn else "Approve"
+    redirect_label = "Return to Chat"
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Latch — Approve Tool Call</title>
 <style>
+  @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap");
+  :root {{
+    --bg: #0a111c;
+    --bg-2: #101b2b;
+    --card: rgba(10, 17, 28, 0.82);
+    --line: rgba(126, 159, 204, 0.35);
+    --text: #edf3ff;
+    --muted: #9cb2cf;
+    --approve: #2bc173;
+    --deny: #ff5b66;
+    --cta: #3f8cff;
+    --glow: rgba(63, 140, 255, 0.4);
+  }}
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-  body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0d1117; color: #e6edf3; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 2rem; }}
-  .card {{ background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 2rem; max-width: 600px; width: 100%; }}
-  h1 {{ font-size: 1.4rem; margin-bottom: 0.5rem; }}
-  .tool-name {{ color: #58a6ff; font-family: monospace; font-size: 1.2rem; background: #0d1117; padding: 0.3rem 0.6rem; border-radius: 6px; display: inline-block; margin-bottom: 1rem; }}
-  .args {{ background: #0d1117; border: 1px solid #30363d; border-radius: 8px; padding: 1rem; font-family: monospace; font-size: 0.85rem; white-space: pre-wrap; word-break: break-all; max-height: 300px; overflow-y: auto; margin-bottom: 1.5rem; }}
-  .buttons {{ display: flex; gap: 1rem; }}
-  button {{ flex: 1; padding: 0.75rem 1.5rem; border: none; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer; transition: opacity 0.15s; }}
-  button:hover {{ opacity: 0.85; }} button:disabled {{ opacity: 0.5; cursor: not-allowed; }}
-  .approve {{ background: #238636; color: #fff; }} .deny {{ background: #da3633; color: #fff; }}
-  .status {{ margin-top: 1rem; text-align: center; color: #8b949e; min-height: 1.5em; }}
-  label {{ font-size: 0.9rem; color: #8b949e; display: block; margin-bottom: 0.3rem; }}
+  body {{
+    font-family: "Space Grotesk", sans-serif;
+    color: var(--text);
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: 1.25rem;
+    background:
+      radial-gradient(1200px 700px at -10% -20%, #274469 0%, transparent 55%),
+      radial-gradient(900px 540px at 110% 120%, #1a5a4a 0%, transparent 60%),
+      linear-gradient(155deg, var(--bg) 0%, var(--bg-2) 100%);
+  }}
+  .card {{
+    width: min(780px, 100%);
+    border-radius: 20px;
+    border: 1px solid var(--line);
+    backdrop-filter: blur(10px);
+    background: var(--card);
+    box-shadow: 0 22px 70px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255,255,255,0.03) inset;
+    overflow: hidden;
+  }}
+  .header {{
+    padding: 1.5rem 1.5rem 1rem;
+    border-bottom: 1px solid rgba(126, 159, 204, 0.2);
+    background: linear-gradient(90deg, rgba(63,140,255,0.16), rgba(43,193,115,0.08));
+  }}
+  .eyebrow {{
+    font-size: 0.76rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #7fb7ff;
+    margin-bottom: 0.55rem;
+    font-weight: 700;
+  }}
+  h1 {{
+    font-size: clamp(1.35rem, 2.4vw, 1.8rem);
+    line-height: 1.15;
+    margin-bottom: 0.45rem;
+  }}
+  .subtitle {{
+    color: var(--muted);
+    font-size: 0.95rem;
+  }}
+  .content {{
+    padding: 1.25rem 1.5rem 1.5rem;
+    display: grid;
+    gap: 1rem;
+  }}
+  .meta {{
+    display: grid;
+    gap: 0.45rem;
+  }}
+  .label {{
+    color: #b9c9e2;
+    font-size: 0.82rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    font-weight: 700;
+  }}
+  .tool-name {{
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    width: fit-content;
+    border-radius: 999px;
+    border: 1px solid rgba(63, 140, 255, 0.4);
+    background: rgba(63, 140, 255, 0.13);
+    color: #e3efff;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.95rem;
+    font-weight: 600;
+    padding: 0.38rem 0.72rem;
+  }}
+  .args {{
+    border-radius: 14px;
+    border: 1px solid rgba(126, 159, 204, 0.25);
+    background: rgba(5, 11, 20, 0.68);
+    padding: 0.95rem;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.83rem;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 260px;
+    overflow: auto;
+    color: #d8e5fa;
+  }}
+  .buttons {{
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.8rem;
+  }}
+  button {{
+    border: none;
+    border-radius: 12px;
+    padding: 0.84rem 1rem;
+    font-family: "Space Grotesk", sans-serif;
+    font-size: 0.98rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: transform 120ms ease, opacity 120ms ease, box-shadow 120ms ease;
+  }}
+  button:hover {{ transform: translateY(-1px); }}
+  button:disabled {{ opacity: 0.55; cursor: not-allowed; transform: none; }}
+  .approve {{
+    color: #062413;
+    background: linear-gradient(135deg, #7ef6b2 0%, var(--approve) 100%);
+    box-shadow: 0 7px 20px rgba(43, 193, 115, 0.35);
+  }}
+  .deny {{
+    color: #3a090e;
+    background: linear-gradient(135deg, #ffb8be 0%, var(--deny) 100%);
+    box-shadow: 0 7px 20px rgba(255, 91, 102, 0.3);
+  }}
+  #btn-return {{
+    display: none;
+    color: #eaf2ff;
+    background: linear-gradient(135deg, #3f8cff 0%, #2e6ddf 100%);
+    box-shadow: 0 7px 20px var(--glow);
+  }}
+  .status {{
+    min-height: 2.25rem;
+    border-radius: 10px;
+    border: 1px solid rgba(126, 159, 204, 0.25);
+    background: rgba(12, 24, 40, 0.55);
+    color: #c4d6f1;
+    display: grid;
+    place-items: center;
+    text-align: center;
+    font-size: 0.92rem;
+    padding: 0.5rem 0.7rem;
+  }}
+  @media (max-width: 640px) {{
+    .header {{ padding: 1.2rem 1rem 0.9rem; }}
+    .content {{ padding: 1rem; }}
+    .buttons {{ grid-template-columns: 1fr; }}
+  }}
 </style>
 </head>
 <body>
 <div class="card">
-  <h1>Tool Call Approval</h1>
-  <label>Tool</label><div class="tool-name">{tool_name}</div>
-  <label>Arguments</label><div class="args">{escaped}</div>
-  <div class="buttons">
-    <button class="approve" id="btn-approve">{approve_label}</button>
-    <button class="deny" id="btn-deny">Deny</button>
+  <div class="header">
+    <div class="eyebrow">Latch Security Gate</div>
+    <h1>Approve This Tool Call</h1>
+    <div class="subtitle">Review request details before allowing execution.</div>
   </div>
-  <div class="status" id="status"></div>
+  <div class="content">
+    <div class="meta">
+      <div class="label">Tool</div>
+      <div class="tool-name">{tool_name}</div>
+    </div>
+    <div class="meta">
+      <div class="label">Arguments</div>
+      <div class="args">{escaped}</div>
+    </div>
+    <div class="buttons">
+      <button class="approve" id="btn-approve">{approve_label}</button>
+      <button class="deny" id="btn-deny">Deny</button>
+      <button id="btn-return">{redirect_label}</button>
+    </div>
+    <div class="status" id="status">Waiting for your decision.</div>
+  </div>
 </div>
 <script>
   const approvalId = {json.dumps(approval_id)};
   const requireWebAuthn = {"true" if require_webauthn else "false"};
+  const redirectUrl = {json.dumps(redirect_url)};
   const statusEl = document.getElementById("status");
+  const btnReturn = document.getElementById("btn-return");
+
+  function showReturnButton() {{
+    if (!redirectUrl) return;
+    btnReturn.style.display = "block";
+  }}
+
+  function maybeRedirect() {{
+    if (!redirectUrl) return;
+    showReturnButton();
+    setTimeout(() => {{
+      try {{ window.location.href = redirectUrl; }} catch (_e) {{}}
+    }}, 700);
+  }}
+
+  if (redirectUrl) {{
+    btnReturn.addEventListener("click", () => {{
+      window.location.href = redirectUrl;
+    }});
+  }}
 
   async function decide(decision, authResponse) {{
-    statusEl.textContent = decision === "approve" ? "Approving\u2026" : "Denying\u2026";
+    statusEl.textContent = decision === "approve" ? "Approving..." : "Denying...";
     document.getElementById("btn-approve").disabled = true;
     document.getElementById("btn-deny").disabled = true;
     const body = {{ decision }};
     if (authResponse) body.authResponse = authResponse;
     const res = await fetch("/approval/" + approvalId + "/decide", {{ method: "POST", headers: {{"Content-Type": "application/json"}}, body: JSON.stringify(body) }});
-    if (res.ok) {{ statusEl.textContent = decision === "approve" ? "Approved \u2713" : "Denied \u2715"; }}
+    if (res.ok) {{
+      statusEl.textContent = decision === "approve" ? "Approved \u2713" : "Denied \u2715";
+      if (redirectUrl) statusEl.textContent += " Redirecting...";
+      maybeRedirect();
+    }}
     else {{ const err = await res.json().catch(() => ({{}})); statusEl.textContent = "Error: " + (err.error || res.statusText); document.getElementById("btn-approve").disabled = false; document.getElementById("btn-deny").disabled = false; }}
   }}
 
@@ -518,7 +732,7 @@ def _approval_page(approval_id, tool_name, tool_input, require_webauthn):
   document.getElementById("btn-approve").addEventListener("click", async () => {{
     if (!requireWebAuthn) return decide("approve");
     try {{
-      statusEl.textContent = "Requesting passkey\u2026";
+      statusEl.textContent = "Requesting passkey...";
       document.getElementById("btn-approve").disabled = true;
       const optRes = await fetch("/approval/" + approvalId + "/webauthn-options");
       if (!optRes.ok) {{ const err = await optRes.json().catch(() => ({{}})); throw new Error(err.error || "Failed to get options"); }}
