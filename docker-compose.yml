@@ -13,11 +13,11 @@ services:
       - LATCH_MCP_PORT=8100
       - LATCH_MCP_PATH=/mcp
       # Webhook callback to push approval results into the OpenClaw chat session
-      - OPENCLAW_HOOKS_URL=${OPENCLAW_HOOKS_URL:-}
-      - OPENCLAW_HOOKS_TOKEN=${OPENCLAW_HOOKS_TOKEN:-}
-      - OPENCLAW_SESSION_KEY=${OPENCLAW_SESSION_KEY:-}
-      - OPENCLAW_CHANNEL=${OPENCLAW_CHANNEL:-}
-      - OPENCLAW_CHANNEL_TO=${OPENCLAW_CHANNEL_TO:-}
+      - OPENCLAW_HOOKS_URL=${OPENCLAW_HOOKS_URL:-http://host.docker.internal:18789/hooks/agent}
+      - OPENCLAW_HOOKS_TOKEN=${OPENCLAW_HOOKS_TOKEN:-latch-webhook-token-2026}
+      - OPENCLAW_SESSION_KEY=${OPENCLAW_SESSION_KEY:-agent:main:whatsapp:direct:+14124679849}
+      - OPENCLAW_CHANNEL=${OPENCLAW_CHANNEL:-whatsapp}
+      - OPENCLAW_CHANNEL_TO=${OPENCLAW_CHANNEL_TO:-+14124679849}
 
   # Example: OpenClaw connecting to latch as a sidecar
   # openclaw:

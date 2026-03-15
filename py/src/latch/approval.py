@@ -330,8 +330,16 @@ class ApprovalServer:
 
         import aiohttp
 
+        # /hooks/agent runs an isolated agent turn; it does not directly emit payload.message.
+        # Force a deterministic user-facing reply so approval outcomes are delivered to chat.
+        agent_prompt = (
+            "Reply with exactly the text between <latch_result> tags. "
+            "Do not add, remove, or reformat anything.\n"
+            f"<latch_result>\n{message}\n</latch_result>"
+        )
+
         payload = {
-            "message": message,
+            "message": agent_prompt,
             "name": "latch-approval",
             "deliver": True,
             "wakeMode": "now",
@@ -354,11 +362,12 @@ class ApprovalServer:
                     },
                     timeout=aiohttp.ClientTimeout(total=10),
                 ) as resp:
+                    body = await resp.text()
                     if resp.status >= 400:
-                        body = await resp.text()
                         sys.stderr.write(f"[latch] Webhook push failed ({resp.status}): {body}\n")
                     else:
-                        sys.stderr.write(f"[latch] Webhook push OK ({resp.status})\n")
+                        sys.stderr.write(f"[latch] Webhook push OK ({resp.status}): {body}\n")
+                    sys.stderr.write(f"[latch] Webhook payload: {json.dumps(payload)}\n")
         except Exception as e:
             sys.stderr.write(f"[latch] Webhook push error: {e}\n")
 
