@@ -6,6 +6,7 @@ import sys
 import time
 import webbrowser
 from datetime import datetime, timezone
+import re
 from urllib.parse import urlparse
 
 from aiohttp import web
@@ -26,6 +27,7 @@ from webauthn.helpers.structs import (
 from . import credentials
 from .config import (
     LATCH_APPROVAL_PORT,
+    LATCH_APPROVAL_REDIRECT_URL,
     LATCH_RP_ID,
     LATCH_ORIGIN,
     OPENCLAW_HOOKS_URL,
@@ -66,6 +68,18 @@ def _normalize_credential_id(value: str | None) -> str | None:
     except Exception:
         return value
     return _b64url(decoded)
+
+
+def _is_safe_redirect_url(url: str) -> bool:
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False
+    return parsed.scheme in {"https", "http", "whatsapp"} and bool(parsed.netloc or parsed.scheme == "whatsapp")
+
+
+def _normalize_phone_digits(value: str) -> str:
+    return re.sub(r"\D+", "", value)
 
 
 class ApprovalServer:
@@ -210,10 +224,32 @@ class ApprovalServer:
         if time.time() - session["created_at"] > SESSION_TTL:
             self._sessions.pop(approval_id, None)
             return web.Response(text="Approval session expired.", status=410)
+        redirect_url = self._resolve_post_decision_redirect_url()
         return web.Response(
             content_type="text/html",
-            text=_approval_page(approval_id, session["tool"], session["args"], session["require_webauthn"]),
+            text=_approval_page(
+                approval_id,
+                session["tool"],
+                session["args"],
+                session["require_webauthn"],
+                redirect_url,
+            ),
         )
+
+    def _resolve_post_decision_redirect_url(self) -> str | None:
+        configured = (LATCH_APPROVAL_REDIRECT_URL or "").strip()
+        if configured:
+            if _is_safe_redirect_url(configured):
+                return configured
+            sys.stderr.write(f"[latch] Ignoring unsafe LATCH_APPROVAL_REDIRECT_URL: {configured}\n")
+            return None
+
+        if (OPENCLAW_CHANNEL or "").strip().lower() == "whatsapp":
+            to = (OPENCLAW_CHANNEL_TO or "").strip()
+            digits = _normalize_phone_digits(to)
+            if digits:
+                return f"https://wa.me/{digits}"
+        return None
 
     async def _get_webauthn_opts(self, req: web.Request):
         approval_id = req.match_info["id"]
@@ -464,9 +500,10 @@ async def start_approval_flow(tool_name: str, tool_input: dict, require_webauthn
 
 # --- HTML templates ---
 
-def _approval_page(approval_id, tool_name, tool_input, require_webauthn):
+def _approval_page(approval_id, tool_name, tool_input, require_webauthn, redirect_url):
     escaped = json.dumps(tool_input, indent=2).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     approve_label = "Approve with Passkey" if require_webauthn else "Approve"
+    redirect_label = "Return to Chat"
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -496,12 +533,36 @@ def _approval_page(approval_id, tool_name, tool_input, require_webauthn):
     <button class="approve" id="btn-approve">{approve_label}</button>
     <button class="deny" id="btn-deny">Deny</button>
   </div>
+  <div class="buttons" style="margin-top: 0.75rem;">
+    <button id="btn-return" style="display:none; background:#1f6feb; color:#fff;">{redirect_label}</button>
+  </div>
   <div class="status" id="status"></div>
 </div>
 <script>
   const approvalId = {json.dumps(approval_id)};
   const requireWebAuthn = {"true" if require_webauthn else "false"};
+  const redirectUrl = {json.dumps(redirect_url)};
   const statusEl = document.getElementById("status");
+  const btnReturn = document.getElementById("btn-return");
+
+  function showReturnButton() {{
+    if (!redirectUrl) return;
+    btnReturn.style.display = "block";
+  }}
+
+  function maybeRedirect() {{
+    if (!redirectUrl) return;
+    showReturnButton();
+    setTimeout(() => {{
+      try {{ window.location.href = redirectUrl; }} catch (_e) {{}}
+    }}, 700);
+  }}
+
+  if (redirectUrl) {{
+    btnReturn.addEventListener("click", () => {{
+      window.location.href = redirectUrl;
+    }});
+  }}
 
   async function decide(decision, authResponse) {{
     statusEl.textContent = decision === "approve" ? "Approving\u2026" : "Denying\u2026";
@@ -510,7 +571,11 @@ def _approval_page(approval_id, tool_name, tool_input, require_webauthn):
     const body = {{ decision }};
     if (authResponse) body.authResponse = authResponse;
     const res = await fetch("/approval/" + approvalId + "/decide", {{ method: "POST", headers: {{"Content-Type": "application/json"}}, body: JSON.stringify(body) }});
-    if (res.ok) {{ statusEl.textContent = decision === "approve" ? "Approved \u2713" : "Denied \u2715"; }}
+    if (res.ok) {{
+      statusEl.textContent = decision === "approve" ? "Approved \u2713" : "Denied \u2715";
+      if (redirectUrl) statusEl.textContent += " Redirecting\u2026";
+      maybeRedirect();
+    }}
     else {{ const err = await res.json().catch(() => ({{}})); statusEl.textContent = "Error: " + (err.error || res.statusText); document.getElementById("btn-approve").disabled = false; document.getElementById("btn-deny").disabled = false; }}
   }}
 
