@@ -115,7 +115,7 @@ Make first success fast and obvious:
 
 ## Proposed Wizard Flow
 1. Detect environment and prerequisites:
-   1. `pipx`/`uv`, Docker availability, OpenClaw presence.
+   1. `pipx`/`uv`, Docker availability, OpenClaw presence, `cloudflared` binary.
 2. Ask “What are you integrating with?”
    1. OpenClaw (Docker sidecar)
    2. OpenClaw (plugin/local)
@@ -125,12 +125,21 @@ Make first success fast and obvious:
    1. `~/.agent-2fa/policy.yaml`
    2. `~/.agent-2fa/servers.yaml` (for MCP mode)
    3. Optional OpenClaw/mcporter config guidance
-4. Offer enrollment:
+4. Cloudflare tunnel setup (for remote approval access):
+   1. Check if `cloudflared` is installed; offer to install if missing.
+   2. Run `cloudflared tunnel login` (opens browser for Cloudflare auth).
+   3. Prompt for domain (user must have a zone in Cloudflare).
+   4. Create named tunnel: `cloudflared tunnel create <name>`.
+   5. Route DNS: `cloudflared tunnel route dns <name> approve.<domain>`.
+   6. Write tunnel credentials path and config to latch env/config.
+   7. Tunnel runs inside the container at startup — no host-level daemon needed.
+5. Offer enrollment:
    1. `latch enroll` or `latch enroll --remote`
-5. Run verification checks:
+6. Run verification checks:
    1. `latch status`
    2. Optional “send test approval” dry run
-6. Print exact next steps and rollback instructions.
+   3. Verify tunnel connectivity: `curl https://approve.<domain>/health`
+7. Print exact next steps and rollback instructions.
 
 ## Key Files To Update
 1. Docs:

@@ -3,6 +3,7 @@ services:
     build: ./py
     volumes:
       - latch-data:/data
+      - ${HOME}/.cloudflared:/etc/cloudflared:ro
     ports:
       - "8100:8100"
       - "8200:8200"
@@ -12,6 +13,10 @@ services:
       - LATCH_MCP_HOST=0.0.0.0
       - LATCH_MCP_PORT=8100
       - LATCH_MCP_PATH=/mcp
+      # Named Cloudflare tunnel (provisioned by `latch setup` wizard)
+      - CLOUDFLARE_TUNNEL_ID=${CLOUDFLARE_TUNNEL_ID:-}
+      - CLOUDFLARE_TUNNEL_HOSTNAME=${CLOUDFLARE_TUNNEL_HOSTNAME:-}
+      - CLOUDFLARE_TUNNEL_CRED_FILE=${CLOUDFLARE_TUNNEL_CRED_FILE:-}
       # Optional: redirect approval page back to chat/control UI after approve/deny
       - LATCH_APPROVAL_REDIRECT_URL=${LATCH_APPROVAL_REDIRECT_URL:-http://localhost:18789}
       # Webhook callback to push approval results into the OpenClaw chat session
