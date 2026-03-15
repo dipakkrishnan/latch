@@ -331,10 +331,11 @@ class ApprovalServer:
         import aiohttp
 
         # /hooks/agent runs an isolated agent turn; it does not directly emit payload.message.
-        # Force a deterministic user-facing reply so approval outcomes are delivered to chat.
+        # Ask the agent to produce a concise user-facing summary of the outcome.
         agent_prompt = (
-            "Reply with exactly the text between <latch_result> tags. "
-            "Do not add, remove, or reformat anything.\n"
+            "Summarize the following latch approval outcome for the user in 1-2 short sentences. "
+            "Include the decision (approved/denied), the tool name, and execution status if applicable. "
+            "Keep the response concise and user-facing.\n"
             f"<latch_result>\n{message}\n</latch_result>"
         )
 
