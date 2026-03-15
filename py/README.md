@@ -6,13 +6,13 @@ Universal gating and audit layer for AI agents. Intercepts tool calls, evaluates
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/dipakkrishnan/latch/main/scripts/install-latch.sh | sh
-latch setup
+latch init
 ```
 
 Alternative:
 ```bash
 pipx install latch-agent
-latch setup
+latch init
 ```
 
 ## OpenClaw Integration
@@ -72,7 +72,6 @@ latch hook       # Run as stdin/stdout hook
 latch serve      # Run as MCP proxy server
 latch dashboard  # Launch web dashboard
 latch enroll     # Enroll a WebAuthn passkey
-latch setup      # Guided setup wizard
 latch status     # Show config summary
 ```
 

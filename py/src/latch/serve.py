@@ -25,30 +25,28 @@ def _add_approval_tools(mcp, approval_server):
     """Register the check_approval and pending_approvals tools."""
 
     async def check_approval(approval_id: str) -> list:
-        """Check the status of a pending approval. Returns the result if decided, or 'pending' if still waiting.
+        """Wait for a pending approval decision. This call blocks until the user approves or denies.
 
-        Call this after a tool returns an approval URL. Pass the approval_id from that response.
-        If approved, the original tool call is automatically executed and the result returned."""
+        You should call this immediately after a tool returns an approval URL.
+        Pass the approval_id from that response. This will block until the user
+        opens the approval link and makes a decision (up to 5 minutes).
+        If approved, the original tool call is executed and its result returned."""
         session = approval_server._sessions.get(approval_id)
         if not session:
             return [{"type": "text", "text": f"Approval {approval_id} not found (expired or already resolved)."}]
 
-        if not session["event"].is_set():
-            return [{"type": "text", "text": "pending"}]
+        # block until the user approves or denies (or session expires)
+        approved = await approval_server.wait_for_decision(approval_id)
 
-        approved = session["approved"]
         tool_name = session["tool"]
         tool_args = session["args"]
-        approval_server._sessions.pop(approval_id, None)
 
         if not approved:
             append(tool_name, tool_args, "browser", "deny", "Denied by user", "browser", "mcp")
-            return [{"type": "text", "text": f"Denied by user."}]
+            return [{"type": "text", "text": "The tool call was denied by the user."}]
 
-        # Approved — execute the original tool call
         append(tool_name, tool_args, "browser", "allow", "Approved by user", "browser", "mcp")
 
-        # Find the downstream client and call the real tool
         alias, _, downstream_tool = tool_name.partition("__")
         client = approval_server._clients.get(alias)
         if not client:
@@ -60,7 +58,7 @@ def _add_approval_tools(mcp, approval_server):
     check_approval.__name__ = "latch__check_approval"
     mcp.tool(
         name="latch__check_approval",
-        description="Check status of a pending tool approval. Pass the approval_id returned when a tool requires approval. Returns 'pending', the tool result (if approved), or a denial message.",
+        description="Wait for a pending tool approval. Important: Call this immediately after a tool returns an approval URL. This blocks until the user approves or denies via the approval link. Returns the tool result if approved, or a denial message.",
     )(check_approval)
 
 
@@ -82,15 +80,20 @@ def _add(mcp, alias, client, tool, approval_server):
                 import webbrowser
                 webbrowser.open(url)
 
-            # Return the URL immediately — agent shows it to user, then polls check_approval
-            return [{"type": "text", "text": json.dumps({
-                "status": "approval_required",
-                "approval_id": approval_id,
-                "url": url,
-                "tool": qname,
-                "message": f"Approval required for {qname}. Open to approve: {url}",
-                "next": f'Call latch__check_approval with approval_id="{approval_id}" to check the result.',
-            })}]
+            # Return the URL for the agent to show the user, plus an instruction
+            # to immediately call check_approval (which will block until decided)
+            return [
+                {"type": "text", "text": (
+                    f"Approval required for {qname}. "
+                    f"Please open this link to approve or deny:\n\n{url}"
+                )},
+                {"type": "text", "text": (
+                    f"ACTION REQUIRED: Immediately call the latch__check_approval tool "
+                    f'with approval_id="{approval_id}". '
+                    f"That call will wait for the user's decision and return the result. "
+                    f"Do NOT proceed without calling it."
+                )},
+            ]
         elif action == "deny":
             append(qname, kw, action, "deny", reason, "policy", "mcp")
             return [{"type": "text", "text": f"Blocked by policy: {reason}"}]
