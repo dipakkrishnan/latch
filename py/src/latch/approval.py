@@ -224,7 +224,7 @@ class ApprovalServer:
         if time.time() - session["created_at"] > SESSION_TTL:
             self._sessions.pop(approval_id, None)
             return web.Response(text="Approval session expired.", status=410)
-        redirect_url = self._resolve_post_decision_redirect_url()
+        redirect_urls = self._resolve_redirect_urls()
         return web.Response(
             content_type="text/html",
             text=_approval_page(
@@ -232,24 +232,27 @@ class ApprovalServer:
                 session["tool"],
                 session["args"],
                 session["require_webauthn"],
-                redirect_url,
+                redirect_urls,
             ),
         )
 
-    def _resolve_post_decision_redirect_url(self) -> str | None:
-        configured = (LATCH_APPROVAL_REDIRECT_URL or "").strip()
-        if configured:
-            if _is_safe_redirect_url(configured):
-                return configured
-            sys.stderr.write(f"[latch] Ignoring unsafe LATCH_APPROVAL_REDIRECT_URL: {configured}\n")
-            return None
+    def _resolve_redirect_urls(self) -> dict:
+        """Return redirect URLs for each context. The JS will pick the right one at runtime."""
+        urls = {}
 
+        # Control UI / desktop fallback
+        configured = (LATCH_APPROVAL_REDIRECT_URL or "").strip()
+        if configured and _is_safe_redirect_url(configured):
+            urls["desktop"] = configured
+
+        # WhatsApp deep link for mobile
         if (OPENCLAW_CHANNEL or "").strip().lower() == "whatsapp":
             to = (OPENCLAW_CHANNEL_TO or "").strip()
             digits = _normalize_phone_digits(to)
             if digits:
-                return f"https://wa.me/{digits}"
-        return None
+                urls["whatsapp"] = f"https://wa.me/{digits}"
+
+        return urls
 
     async def _get_webauthn_opts(self, req: web.Request):
         approval_id = req.match_info["id"]
@@ -500,7 +503,7 @@ async def start_approval_flow(tool_name: str, tool_input: dict, require_webauthn
 
 # --- HTML templates ---
 
-def _approval_page(approval_id, tool_name, tool_input, require_webauthn, redirect_url):
+def _approval_page(approval_id, tool_name, tool_input, require_webauthn, redirect_urls):
     escaped = json.dumps(tool_input, indent=2).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     approve_label = "Approve with Passkey" if require_webauthn else "Approve"
     redirect_label = "Return to Chat"
@@ -690,12 +693,20 @@ def _approval_page(approval_id, tool_name, tool_input, require_webauthn, redirec
 <script>
   const approvalId = {json.dumps(approval_id)};
   const requireWebAuthn = {"true" if require_webauthn else "false"};
-  const redirectUrl = {json.dumps(redirect_url)};
+  const redirectUrls = {json.dumps(redirect_urls)};
   const statusEl = document.getElementById("status");
   const btnReturn = document.getElementById("btn-return");
 
+  // Pick redirect based on device: mobile → WhatsApp deep link, desktop → Control UI
+  function isMobile() {{
+    return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+  }}
+  const redirectUrl = isMobile() ? (redirectUrls.whatsapp || redirectUrls.desktop || null)
+                                  : (redirectUrls.desktop || null);
+
   function showReturnButton() {{
     if (!redirectUrl) return;
+    btnReturn.textContent = isMobile() && redirectUrls.whatsapp ? "Return to WhatsApp" : "Return to Chat";
     btnReturn.style.display = "block";
   }}
 
