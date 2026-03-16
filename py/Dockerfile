@@ -15,5 +15,4 @@ RUN apt-get update && \
 ENV AGENT_2FA_DIR=/data
 EXPOSE 8100 8200
 
-# Init config on first run, then start serving
 CMD ["sh", "-c", "latch init && latch serve --transport streamable-http --mcp-host 0.0.0.0 --mcp-port 8100 --approval-port 8200"]

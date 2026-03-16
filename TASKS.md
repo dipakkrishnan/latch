@@ -109,13 +109,13 @@ Make first success fast and obvious:
    1. Root and `py/` READMEs share one source of truth and avoid duplicated drifting setup instructions.
    2. “Advanced/Manual setup” moved below “Wizard setup”.
 4. Troubleshooting section:
-   1. Cloudflare quick tunnel failures (EOF / invalid URL fallback).
+   1. Named tunnel registration failures (DNS propagation, credential issues).
    2. Docker env propagation gotchas.
    3. Path issues after install (`latch` not found).
 
 ## Proposed Wizard Flow
 1. Detect environment and prerequisites:
-   1. `pipx`/`uv`, Docker availability, OpenClaw presence.
+   1. `pipx`/`uv`, Docker availability, OpenClaw presence, `cloudflared` binary.
 2. Ask “What are you integrating with?”
    1. OpenClaw (Docker sidecar)
    2. OpenClaw (plugin/local)
@@ -125,12 +125,20 @@ Make first success fast and obvious:
    1. `~/.agent-2fa/policy.yaml`
    2. `~/.agent-2fa/servers.yaml` (for MCP mode)
    3. Optional OpenClaw/mcporter config guidance
-4. Offer enrollment:
+4. Cloudflare tunnel setup (for remote approval access):
+   1. Goal: user should not need to understand Cloudflare internals. The wizard (or backend provisioning) handles it.
+   2. Two modes:
+      1. **Managed (preferred)**: Latch backend provisions a tunnel subdomain on a shared domain (e.g. `<user-slug>.approve.clawdian.dev`) and returns credentials. User just runs `latch setup` and gets a working tunnel automatically.
+      2. **BYOD (bring your own domain)**: For users who want their own domain — wizard walks through `cloudflared tunnel login`, tunnel creation, and DNS routing. Writes credentials and config to latch env.
+   3. Either way, tunnel runs inside the container at startup — no host-level daemon needed.
+   4. Credentials stored in `~/.agent-2fa/tunnel/` and mounted into the container.
+5. Offer enrollment:
    1. `latch enroll` or `latch enroll --remote`
-5. Run verification checks:
+6. Run verification checks:
    1. `latch status`
    2. Optional “send test approval” dry run
-6. Print exact next steps and rollback instructions.
+   3. Verify tunnel connectivity: `curl https://approve.<domain>/health`
+7. Print exact next steps and rollback instructions.
 
 ## Key Files To Update
 1. Docs:
@@ -148,3 +156,70 @@ Make first success fast and obvious:
 2. Wizard can produce a working baseline configuration in <5 minutes.
 3. Root and `py/` README setup instructions are consistent and non-contradictory.
 4. Each integration path ends with a deterministic verification command.
+
+# 3. Per-Request Session Routing Via MCP `_meta`
+
+## Summary
+Pass channel and session context per-request so latch can route approval results back to the correct user and channel, eliminating hardcoded `OPENCLAW_SESSION_KEY`/`CHANNEL`/`CHANNEL_TO` env vars.
+
+## Problem
+Currently, webhook delivery (approval result → OpenClaw → WhatsApp/Control UI) uses global env vars to determine where to push results. This means:
+1. Latch can only serve one user at a time.
+2. If multiple channels are active (WhatsApp + Control UI), the result always goes to whichever channel is hardcoded.
+3. The redirect URL after approval is resolved globally, not per the channel that initiated the request.
+
+## Current State (Investigated)
+**Neither OpenClaw nor mcporter currently pass `_meta` with MCP tool calls.**
+
+Call chain today:
+1. OpenClaw reply agent calls plugin tool → `tool.execute(toolCallId, params, signal, onUpdate)`
+2. Plugin bridge calls mcporter `runtime.callTool(server, toolName, { args })` — no `_meta` included.
+3. mcporter `runtime.callTool` builds `params = { name, arguments }` and calls MCP SDK `client.callTool(params, undefined, { timeout })` — `_meta` not populated.
+4. The MCP SDK *does* support `_meta` in `CallToolRequest.params` per spec — it's just not wired up.
+
+`getPluginToolMeta(tool)` in OpenClaw returns `{ pluginId, optional }` — internal plugin provenance metadata, **not** session routing context.
+
+## Required Changes (Two Sides)
+
+### OpenClaw / mcporter side (upstream dependency)
+1. **mcporter `callTool`** needs a `meta` option so callers can pass `_meta` through to the MCP SDK's `client.callTool(params)`.
+   - In `runtime.js` line ~127: add `if (options.meta) params._meta = options.meta;` before calling `client.callTool`.
+2. **OpenClaw reply agent** needs to inject session context when calling plugin tools via mcporter.
+   - The reply agent has access to session/channel context (it knows `sessionKey`, `channel`, `to`, `agentId`).
+   - When executing a plugin tool, pass `{ args, meta: { sessionKey, channel, to, agentId } }` to mcporter.
+3. **Search for existing PRs/issues** in OpenClaw and mcporter that add `_meta` forwarding — this may already be in progress.
+
+### Latch side (our changes)
+1. `py/src/latch/serve.py` — extract `_meta` from MCP tool call input, pass to `create_request`.
+2. `py/src/latch/approval.py`:
+   - `create_request` accepts optional session context dict.
+   - Session dict stores `session_key`, `channel`, `to`, `agent_id`.
+   - `_handle_decision` / `_push_to_openclaw` reads from session, falls back to env vars.
+   - `_get_approval_page` passes per-session channel to redirect logic.
+3. `docker-compose.yml` — `OPENCLAW_SESSION_KEY`, `OPENCLAW_CHANNEL`, `OPENCLAW_CHANNEL_TO` become optional fallback defaults.
+
+## Design
+1. OpenClaw passes session context when calling latch MCP tools via the MCP `_meta` field:
+   ```json
+   {
+     "_meta": {
+       "sessionKey": "agent:main:whatsapp:direct:+14124679849",
+       "channel": "whatsapp",
+       "to": "+14124679849",
+       "agentId": "main"
+     }
+   }
+   ```
+2. Latch stores this context per approval session (alongside `tool`, `args`, etc.).
+3. On approval/denial, `_push_to_openclaw` uses the stored per-session context instead of global env vars.
+4. The approval page redirect logic uses the stored channel to pick the right redirect URL.
+5. Global env vars become fallback defaults only — used when `_meta` is absent (backward compat).
+
+## Interaction With Task 1
+The native HTTP gating API (`POST /v1/gate/native`) already accepts `sessionKey`, `channel`, `to`, and `agentId` in the request body. When Task 1 and Task 3 are both complete, both MCP and native paths carry per-request session context end-to-end.
+
+## Acceptance Criteria
+1. Two concurrent users on different channels both receive approval results on their own channel.
+2. Approval redirect resolves correctly per the originating channel (WhatsApp → wa.me, Control UI → localhost).
+3. Existing deployments without `_meta` continue to work via env var fallback.
+4. Audit log entries include the originating session context.

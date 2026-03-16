@@ -3,6 +3,7 @@ services:
     build: ./py
     volumes:
       - latch-data:/data
+      - ${HOME}/.cloudflared:/etc/cloudflared:ro
     ports:
       - "8100:8100"
       - "8200:8200"
@@ -12,14 +13,18 @@ services:
       - LATCH_MCP_HOST=0.0.0.0
       - LATCH_MCP_PORT=8100
       - LATCH_MCP_PATH=/mcp
+      # Named Cloudflare tunnel (provisioned by `latch setup` wizard)
+      - CLOUDFLARE_TUNNEL_ID=${CLOUDFLARE_TUNNEL_ID:-}
+      - CLOUDFLARE_TUNNEL_HOSTNAME=${CLOUDFLARE_TUNNEL_HOSTNAME:-}
+      - CLOUDFLARE_TUNNEL_CRED_FILE=${CLOUDFLARE_TUNNEL_CRED_FILE:-}
       # Optional: redirect approval page back to chat/control UI after approve/deny
-      - LATCH_APPROVAL_REDIRECT_URL=${LATCH_APPROVAL_REDIRECT_URL:-http://localhost:18789}
+      - LATCH_APPROVAL_REDIRECT_URL=${LATCH_APPROVAL_REDIRECT_URL:-}
       # Webhook callback to push approval results into the OpenClaw chat session
       - OPENCLAW_HOOKS_URL=${OPENCLAW_HOOKS_URL:-http://host.docker.internal:18789/hooks/agent}
       - OPENCLAW_HOOKS_TOKEN=${OPENCLAW_HOOKS_TOKEN:-latch-webhook-token-2026}
-      - OPENCLAW_SESSION_KEY=${OPENCLAW_SESSION_KEY:-agent:main:whatsapp:direct:+14124679849}
-      - OPENCLAW_CHANNEL=${OPENCLAW_CHANNEL:-whatsapp}
-      - OPENCLAW_CHANNEL_TO=${OPENCLAW_CHANNEL_TO:-+14124679849}
+      - OPENCLAW_SESSION_KEY=${OPENCLAW_SESSION_KEY:-}
+      - OPENCLAW_CHANNEL=${OPENCLAW_CHANNEL:-}
+      - OPENCLAW_CHANNEL_TO=${OPENCLAW_CHANNEL_TO:-}
 
   # Example: OpenClaw connecting to latch as a sidecar
   # openclaw:

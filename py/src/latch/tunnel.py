@@ -1,5 +1,5 @@
 import asyncio
-import re
+import os
 import shutil
 import sys
 
@@ -7,32 +7,42 @@ _process: asyncio.subprocess.Process | None = None
 _tunnel_url: str | None = None
 _drain_task: asyncio.Task | None = None
 
+# Named tunnel config — set via env vars, provisioned by `latch setup` wizard
+CLOUDFLARE_TUNNEL_ID = os.environ.get("CLOUDFLARE_TUNNEL_ID", "")
+CLOUDFLARE_TUNNEL_HOSTNAME = os.environ.get("CLOUDFLARE_TUNNEL_HOSTNAME", "")
+CLOUDFLARE_TUNNEL_CRED_FILE = os.environ.get("CLOUDFLARE_TUNNEL_CRED_FILE", "")
+
 
 async def start_tunnel(local_port: int) -> str | None:
-    """Start a Cloudflare quick tunnel pointing to the local port.
+    """Start the named Cloudflare tunnel pointing to the local port.
 
-    Returns the public https URL, or None if cloudflared is not available.
+    Returns the public https URL, or None if not configured or cloudflared is missing.
     """
-    global _process, _tunnel_url
+    global _process, _tunnel_url, _drain_task
 
     if _tunnel_url:
         return _tunnel_url
 
-    if not shutil.which("cloudflared"):
-        sys.stderr.write("Warning: cloudflared not found on PATH. Falling back to localhost URLs.\n")
+    if not CLOUDFLARE_TUNNEL_ID or not CLOUDFLARE_TUNNEL_HOSTNAME:
+        sys.stderr.write("No tunnel configured (set CLOUDFLARE_TUNNEL_ID/HOSTNAME or run `latch setup`).\n")
         return None
 
+    if not shutil.which("cloudflared"):
+        sys.stderr.write("Warning: cloudflared not found on PATH. No tunnel available.\n")
+        return None
+
+    args = ["cloudflared", "tunnel"]
+    if CLOUDFLARE_TUNNEL_CRED_FILE:
+        args += ["--credentials-file", CLOUDFLARE_TUNNEL_CRED_FILE, "--origincert", ""]
+    args += ["--url", f"http://localhost:{local_port}", "run", CLOUDFLARE_TUNNEL_ID]
+
     _process = await asyncio.create_subprocess_exec(
-        "cloudflared", "tunnel", "--url", f"http://localhost:{local_port}",
+        *args,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
 
-    # Match tunnel URLs but exclude the API endpoint itself
-    url_pattern = re.compile(r"(https://(?!api\.)[a-zA-Z0-9\-]+\.trycloudflare\.com)")
-
-    # cloudflared prints the URL to stderr
-    async def _read_until_url():
+    async def _wait_for_ready():
         global _tunnel_url
         assert _process and _process.stderr
         while True:
@@ -41,23 +51,20 @@ async def start_tunnel(local_port: int) -> str | None:
                 break
             text = line.decode(errors="replace").strip()
             sys.stderr.write(f"[cloudflared] {text}\n")
-            m = url_pattern.search(text)
-            if m:
-                _tunnel_url = m.group(1)
+            if "Registered tunnel connection" in text:
+                _tunnel_url = f"https://{CLOUDFLARE_TUNNEL_HOSTNAME}"
                 return _tunnel_url
         return None
 
     try:
-        url = await asyncio.wait_for(_read_until_url(), timeout=30)
+        url = await asyncio.wait_for(_wait_for_ready(), timeout=30)
     except asyncio.TimeoutError:
-        sys.stderr.write("Warning: timed out waiting for cloudflared tunnel URL.\n")
+        sys.stderr.write("Warning: timed out waiting for tunnel to register.\n")
         await stop_tunnel()
         return None
 
     if url:
-        global _drain_task
         sys.stderr.write(f"Tunnel active: {url}\n")
-        # Continue draining stderr in background so the process doesn't block
         _drain_task = asyncio.create_task(_drain_stderr())
     return url
 
