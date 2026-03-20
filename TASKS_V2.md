@@ -95,13 +95,32 @@ Ship a production-ready `clawdian-approver` service that bridges OpenClaw exec a
 
 ## 8. UX + Setup Tasks
 
-### 8.1 Wizard
-1. Add `latch setup openclaw` flow in CLI:
-   1. Detect Docker vs local OpenClaw.
-   2. Configure `approvals.exec` in OpenClaw.
-   3. Collect gateway/latch endpoints and tokens.
-   4. Install and start approver service.
-   5. Run smoke test.
+### 8.1 Setup TUI (MVP)
+Single command: `latch setup openclaw`. User provides Gateway token, wizard does everything else.
+
+1. Detect Gateway:
+   1. Auto-probe `ws://localhost:18789`, fall back to prompt.
+   2. Validate connection with a quick WS open.
+2. Collect token:
+   1. Prompt for Gateway operator token (masked input).
+   2. That's it — Latch URL/token are internal, not user-facing.
+3. Start Latch (if not running):
+   1. Auto-start Latch server (Docker or local subprocess).
+   2. Wait for health check to pass.
+4. Device pairing (fully automated):
+   1. Generate Ed25519 keypair (or load existing).
+   2. Attempt Gateway connect.
+   3. If pairing required → auto-approve via Gateway Control API if local, otherwise open Control UI in browser and poll with spinner until approved.
+   4. Persist device token from `hello-ok`.
+5. Passkey enrollment (inline):
+   1. Check if Latch has enrolled credentials.
+   2. If not → open enrollment page in browser, wait with spinner until complete.
+6. Smoke test:
+   1. Send a test approval through the full pipeline.
+   2. Print "Setup complete. Approver running."
+7. Start approver as background daemon.
+
+**User effort: one command, one token paste, one passkey tap.**
 
 ### 8.2 Deployment Targets
 1. Docker:
@@ -154,31 +173,50 @@ Ship a production-ready `clawdian-approver` service that bridges OpenClaw exec a
    3. approval stays pending
    4. duplicate approvals
 
-## 11. Suggested Milestones
-1. Milestone A (2-3 days):
-   1. Skeleton approver service + config + CLI.
-   2. Basic WS subscribe + manual resolve command.
-2. Milestone B (3-5 days):
-   1. Latch bridge + end-to-end pending/allow/deny.
-   2. Dedupe + retry + reconnect hardening.
-3. Milestone C (2-4 days):
-   1. Docker/local installers + wizard integration.
-   2. Smoke tests + docs.
-4. Milestone D (2-3 days):
-   1. Fault injection tests + observability polish.
+## 11. MVP Definition
 
-## 12. Acceptance Criteria
-1. Any exec approval event can be routed through latch passkey flow and resolved back to OpenClaw.
-2. Works in both deployment modes:
-   1. Docker sidecar
-   2. local daemon
-3. Service survives restarts and transient outages without unsafe auto-allow.
-4. Setup is executable by non-technical users via one guided wizard path.
-5. Audit trail links OpenClaw approval id with Latch approval id and session context.
+MVP = **2FA approval flow + setup TUI**. A user can:
+1. Run `latch setup openclaw` → guided pairing + enrollment.
+2. Start approver → agent tool calls require passkey approval.
+3. Approve/deny via Latch URL with WebAuthn.
 
-## 13. Open Questions
+### MVP scope (in):
+- Gateway WS connect + device auth (done).
+- `POST /v1/gate/native` + `GET /v1/gate/native/{id}` in Latch server.
+- Clawdian approver service with reconnect + dedupe.
+- Setup TUI: config collection, device pairing, enrollment check, smoke test.
+- Single deployment mode (local process, Docker stretch).
+
+### MVP scope (out):
+- Fault injection / circuit breaker.
+- Dead-letter / replay persistence.
+- launchd / systemd installers.
+- Audit trail cross-linking.
+- Dashboard policy integration.
+
+## 12. Milestones
+1. Milestone A — Gateway connect (done):
+   1. Device auth, v2 signing, connect handshake.
+   2. Event subscription + reconnect loop.
+2. Milestone B — Latch native gate API:
+   1. `POST /v1/gate/native` → create approval session, return pending + URL.
+   2. `GET /v1/gate/native/{id}` → poll session state.
+   3. End-to-end: requested → pending → passkey → allow/deny → resolve.
+3. Milestone C — Setup TUI:
+   1. Interactive wizard with config, pairing, enrollment, smoke test.
+   2. `clawdian-approver check` diagnostics command.
+4. Milestone D (post-MVP):
+   1. Docker sidecar + compose integration.
+   2. Hardening: circuit breaker, dead-letter, observability.
+   3. launchd / systemd installers.
+
+## 13. Acceptance Criteria (MVP)
+1. `latch setup openclaw` gets a new user from zero to working approver.
+2. Exec approval events route through Latch passkey flow and resolve back to OpenClaw.
+3. Service reconnects automatically on transient failures, never auto-allows.
+
+## 14. Open Questions
 1. Default unresolved behavior at timeout:
    1. explicit deny vs leave pending for human fallback.
-2. Preferred persistence for dedupe/replay:
-   1. sqlite vs append-only jsonl.
-3. Whether to ship chat message push from approver directly or keep it solely in latch.
+2. Whether to ship chat message push from approver directly or keep it solely in latch.
+3. Should TUI use textual/rich or keep it simple with plain prompts?
