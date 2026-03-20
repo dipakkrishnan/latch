@@ -15,13 +15,23 @@ _LOG = logging.getLogger(__name__)
 class ClawdianApproverService:
     def __init__(self, config: Config) -> None:
         self._config = config
-        self._gateway = GatewayClient(config.gateway_ws_url, config.gateway_token)
+        self._gateway = GatewayClient(
+            config.gateway_ws_url,
+            config.gateway_token,
+            device_key_path=config.device_key_path,
+            client_id=config.client_id,
+            client_mode=config.client_mode,
+            client_version=config.client_version,
+            client_platform=config.client_platform,
+            scopes=config.scopes,
+            debug_frames=config.debug_frames,
+        )
         self._latch = LatchClient(config.latch_base_url, config.latch_token)
         self._seen_approval_ids: set[str] = set()
         self._lock = asyncio.Lock()
 
     async def run(self) -> None:
-        _LOG.info("Starting clawdian-approver")
+        _LOG.info("Starting clawdian-approver (debug_frames=%s)", self._config.debug_frames)
         await self._gateway.run_with_reconnect(self._handle_request)
 
     async def _handle_request(self, req: ApprovalRequest) -> None:
@@ -73,17 +83,11 @@ class ClawdianApproverService:
             or ""
         )
         session = payload.get("session") or payload.get("_meta") or {}
-
         return {
             "tool": "openclaw.exec",
-            "args": {
-                "command": command,
-                "approvalId": req.approval_id,
-                "raw": payload,
-            },
+            "args": {"command": command, "approvalId": req.approval_id, "raw": payload},
             "sessionKey": session.get("sessionKey") or session.get("session_key"),
             "channel": session.get("channel"),
             "to": session.get("to"),
             "agentId": session.get("agentId") or session.get("agent_id"),
         }
-
