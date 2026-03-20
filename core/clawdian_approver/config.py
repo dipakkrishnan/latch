@@ -29,6 +29,9 @@ class Config:
     client_platform: str
     scopes: list[str]
     device_key_path: str
+    openclaw_hooks_url: str
+    openclaw_hooks_token: str
+    notify_pending: bool
 
     @classmethod
     def from_env(cls) -> Config:
@@ -67,4 +70,7 @@ class Config:
             client_platform=os.getenv("CLAWDIAN_CLIENT_PLATFORM", platform.system().lower()).strip(),
             scopes=scopes,
             device_key_path=os.getenv("CLAWDIAN_DEVICE_KEY_PATH", "~/.clawdian-approver/device_ed25519.pem").strip(),
+            openclaw_hooks_url=os.getenv("OPENCLAW_HOOKS_URL", "").strip(),
+            openclaw_hooks_token=os.getenv("OPENCLAW_HOOKS_TOKEN", "").strip(),
+            notify_pending=_bool_env("CLAWDIAN_NOTIFY_PENDING", True),
         )

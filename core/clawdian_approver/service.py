@@ -6,6 +6,7 @@ from typing import Any
 
 from .config import Config
 from .gateway_client import GatewayClient
+from .hooks_client import HooksClient
 from .latch_client import LatchClient
 from .models import ApprovalRequest
 
@@ -27,6 +28,7 @@ class ClawdianApproverService:
             debug_frames=config.debug_frames,
         )
         self._latch = LatchClient(config.latch_base_url, config.latch_token)
+        self._hooks = HooksClient(config.openclaw_hooks_url, config.openclaw_hooks_token)
         self._seen_approval_ids: set[str] = set()
         self._lock = asyncio.Lock()
 
@@ -43,12 +45,24 @@ class ClawdianApproverService:
 
         _LOG.info("Processing approval request: %s", req.approval_id)
         try:
+            session = self._extract_session(req.payload)
             native_req = self._to_latch_request(req)
             decision = await self._latch.authorize_native(native_req)
 
             if decision.state == "pending":
                 if decision.approval_url:
                     _LOG.info("Latch pending approval_id=%s approval_url=%s", decision.approval_id, decision.approval_url)
+                    if self._config.notify_pending and self._hooks.enabled:
+                        try:
+                            await self._hooks.send_pending_approval(
+                                approval_id=decision.approval_id or req.approval_id,
+                                approval_url=decision.approval_url,
+                                session_key=session.get("sessionKey") or session.get("session_key"),
+                                channel=session.get("channel"),
+                                to=session.get("to"),
+                            )
+                        except Exception as exc:
+                            _LOG.warning("Failed to push pending approval to chat for approval_id=%s: %s", req.approval_id, exc)
                 poll_id = decision.approval_id or req.approval_id
                 decision = await self._latch.poll_native(
                     poll_id,
@@ -82,7 +96,7 @@ class ClawdianApproverService:
             or (payload.get("request") or {}).get("command")
             or ""
         )
-        session = payload.get("session") or payload.get("_meta") or {}
+        session = ClawdianApproverService._extract_session(payload)
         return {
             "tool": "openclaw.exec",
             "args": {"command": command, "approvalId": req.approval_id, "raw": payload},
@@ -91,3 +105,7 @@ class ClawdianApproverService:
             "to": session.get("to"),
             "agentId": session.get("agentId") or session.get("agent_id"),
         }
+
+    @staticmethod
+    def _extract_session(payload: dict[str, Any]) -> dict[str, Any]:
+        return payload.get("session") or payload.get("_meta") or {}
