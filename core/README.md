@@ -33,3 +33,6 @@ Optional:
 11. `CLAWDIAN_CLIENT_PLATFORM` (default from OS)
 12. `CLAWDIAN_USER_AGENT` (default `<client_id>/<client_version>`)
 13. `CLAWDIAN_DEVICE_KEY_PATH` (default `~/.clawdian-approver/device_ed25519.pem`)
+14. `OPENCLAW_HOOKS_URL` (optional; e.g. `http://localhost:18789/hooks/agent`)
+15. `OPENCLAW_HOOKS_TOKEN` (optional; required with `OPENCLAW_HOOKS_URL`)
+16. `CLAWDIAN_NOTIFY_PENDING` (`true`/`false`, default `true`; pushes pending approval URL to chat when hooks are configured)

@@ -28,6 +28,7 @@ from . import credentials
 from .config import (
     LATCH_APPROVAL_PORT,
     LATCH_APPROVAL_REDIRECT_URL,
+    LATCH_TOKEN,
     LATCH_RP_ID,
     LATCH_ORIGIN,
     OPENCLAW_HOOKS_URL,
@@ -36,6 +37,7 @@ from .config import (
     OPENCLAW_CHANNEL,
     OPENCLAW_CHANNEL_TO,
 )
+from .policy import load_policy, evaluate
 from .tunnel import get_tunnel_url
 
 SESSION_TTL = 300  # 5 minutes
@@ -136,6 +138,8 @@ class ApprovalServer:
 
     async def start(self):
         app = web.Application()
+        app.router.add_post("/v1/gate/native", self._post_native_gate)
+        app.router.add_get("/v1/gate/native/{id}", self._get_native_gate)
         # Approval routes
         app.router.add_get("/approval/{id}", self._get_approval_page)
         app.router.add_get("/approval/{id}/webauthn-options", self._get_webauthn_opts)
@@ -165,7 +169,15 @@ class ApprovalServer:
         if self._runner:
             await self._runner.cleanup()
 
-    def create_request(self, tool_name: str, tool_input: dict, require_webauthn: bool = False) -> tuple[str, str]:
+    def create_request(
+        self,
+        tool_name: str,
+        tool_input: dict,
+        require_webauthn: bool = False,
+        *,
+        mode: str = "mcp",
+        session_context: dict | None = None,
+    ) -> tuple[str, str]:
         """Register a pending approval session. Returns (approval_id, url).
 
         When a tunnel is active, require_webauthn is automatically set to True
@@ -182,9 +194,12 @@ class ApprovalServer:
         self._sessions[approval_id] = {
             "tool": tool_name,
             "args": tool_input,
+            "mode": mode,
+            "session_context": session_context or {},
             "require_webauthn": require_webauthn,
             "event": asyncio.Event(),
             "approved": False,
+            "native_decision": "pending",
             "challenge": None,
             "created_at": time.time(),
         }
@@ -214,6 +229,69 @@ class ApprovalServer:
                 if session:
                     session["event"].set()  # unblock any waiters
 
+    # --- Native gate API routes ---
+
+    def _authorize_request(self, req: web.Request) -> bool:
+        if not LATCH_TOKEN:
+            return True
+        auth = req.headers.get("Authorization", "")
+        expected = f"Bearer {LATCH_TOKEN}"
+        return auth == expected
+
+    async def _post_native_gate(self, req: web.Request):
+        if not self._authorize_request(req):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        body = await req.json()
+        tool = str(body.get("tool") or "").strip()
+        if not tool:
+            return web.json_response({"error": "Missing required field: tool"}, status=400)
+        args = body.get("args")
+        if args is None:
+            args = {}
+        if not isinstance(args, dict):
+            return web.json_response({"error": "args must be an object"}, status=400)
+
+        session_context = {
+            "sessionKey": body.get("sessionKey"),
+            "channel": body.get("channel"),
+            "to": body.get("to"),
+            "agentId": body.get("agentId"),
+        }
+        policy = load_policy()
+        action, _reason = evaluate(tool, policy)
+
+        if action == "allow":
+            return web.json_response({"state": "allow"})
+        if action == "deny":
+            return web.json_response({"state": "deny"})
+
+        require_webauthn = action == "webauthn"
+        approval_id, approval_url = self.create_request(
+            tool,
+            args,
+            require_webauthn=require_webauthn,
+            mode="native",
+            session_context=session_context,
+        )
+        return web.json_response({
+            "state": "pending",
+            "approvalId": approval_id,
+            "approvalUrl": approval_url,
+        })
+
+    async def _get_native_gate(self, req: web.Request):
+        if not self._authorize_request(req):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        approval_id = req.match_info["id"]
+        session = self._sessions.get(approval_id)
+        if not session:
+            return web.json_response({"error": "Approval not found"}, status=404)
+        if time.time() - session["created_at"] > SESSION_TTL:
+            self._sessions.pop(approval_id, None)
+            return web.json_response({"state": "deny", "reason": "expired"})
+        state = session.get("native_decision", "pending")
+        return web.json_response({"state": state, "approvalId": approval_id})
+
     # --- Approval routes ---
 
     async def _get_approval_page(self, req: web.Request):
@@ -224,7 +302,7 @@ class ApprovalServer:
         if time.time() - session["created_at"] > SESSION_TTL:
             self._sessions.pop(approval_id, None)
             return web.Response(text="Approval session expired.", status=410)
-        redirect_urls = self._resolve_redirect_urls()
+        redirect_urls = self._resolve_redirect_urls(session.get("session_context") or {})
         return web.Response(
             content_type="text/html",
             text=_approval_page(
@@ -236,9 +314,10 @@ class ApprovalServer:
             ),
         )
 
-    def _resolve_redirect_urls(self) -> dict:
+    def _resolve_redirect_urls(self, session_context: dict | None = None) -> dict:
         """Return redirect URLs for each context. The JS will pick the right one at runtime."""
         urls = {}
+        session_context = session_context or {}
 
         # Control UI / desktop fallback
         configured = (LATCH_APPROVAL_REDIRECT_URL or "").strip()
@@ -246,8 +325,9 @@ class ApprovalServer:
             urls["desktop"] = configured
 
         # WhatsApp deep link for mobile
-        if (OPENCLAW_CHANNEL or "").strip().lower() == "whatsapp":
-            to = (OPENCLAW_CHANNEL_TO or "").strip()
+        channel = (session_context.get("channel") or OPENCLAW_CHANNEL or "").strip().lower()
+        if channel == "whatsapp":
+            to = (session_context.get("to") or OPENCLAW_CHANNEL_TO or "").strip()
             digits = _normalize_phone_digits(to)
             if digits:
                 urls["whatsapp"] = f"https://wa.me/{digits}"
@@ -317,10 +397,12 @@ class ApprovalServer:
                 return web.json_response({"error": f"WebAuthn error: {e}"}, status=400)
 
         session["approved"] = decision == "approve"
+        session["native_decision"] = "allow" if session["approved"] else "deny"
         session["event"].set()
 
         # Execute downstream tool and push result via webhook
-        asyncio.create_task(self._handle_decision(approval_id, session))
+        if session.get("mode") == "mcp":
+            asyncio.create_task(self._handle_decision(approval_id, session))
 
         return web.json_response({"ok": True})
 
